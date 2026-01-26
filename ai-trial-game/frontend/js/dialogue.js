@@ -1,107 +1,78 @@
 /**
  * 对话树引擎
- *
- * 处理当事人的选项式对话 + 出示证物功能
  */
 
-/**
- * 对话状态
- */
 const dialogueState = {
-    currentWitness: null,      // 当前当事人ID
-    currentNode: null,         // 当前对话节点ID
-    dialogueTree: null,        // 完整对话树数据
-    unlockedClues: [],         // 已解锁的线索
-    shownEvidence: [],         // 已出示的证物
+    currentWitness: null,
+    currentNode: null,
+    dialogueTree: null,
+    unlockedClues: [],
+    shownEvidence: [],
 };
 
-/**
- * 加载当事人对话树
- * @param {string} witnessId
- *
- * TODO:
- * - 调用API获取对话树
- * - 存入dialogueState.dialogueTree
- * - 设置currentNode为"start"
- */
 async function loadWitness(witnessId) {
-
+    const data = await getWitness(witnessId);
+    dialogueState.currentWitness = witnessId;
+    dialogueState.dialogueTree = data;
+    dialogueState.currentNode = 'start';
+    dialogueState.shownEvidence = [];
 }
 
-/**
- * 获取当前对话节点
- * @returns {object} {text: string, options: array}
- *
- * TODO:
- * - 从dialogueTree中查找currentNode
- * - 返回节点数据
- */
 function getCurrentNode() {
-
+    if (!dialogueState.dialogueTree || !dialogueState.currentNode) return null;
+    const dialogues = dialogueState.dialogueTree.dialogues || [];
+    return dialogues.find(d => d.id === dialogueState.currentNode) || null;
 }
 
-/**
- * 选择对话选项
- * @param {string} optionId - 选项ID或next节点ID
- *
- * TODO:
- * - 更新currentNode
- * - 触发UI更新
- */
-function selectOption(optionId) {
-
+function selectOption(nextNodeId) {
+    const dialogues = dialogueState.dialogueTree?.dialogues || [];
+    const targetNode = dialogues.find(d => d.id === nextNodeId);
+    if (targetNode) {
+        dialogueState.currentNode = nextNodeId;
+        if (targetNode.unlock_clue && !dialogueState.unlockedClues.includes(targetNode.unlock_clue)) {
+            dialogueState.unlockedClues.push(targetNode.unlock_clue);
+        }
+    }
 }
 
-/**
- * 出示证物
- * @param {string} evidenceId
- * @returns {object|null} 反应文本，如果没有特殊反应返回null
- *
- * TODO:
- * - 检查dialogueTree.evidence_reactions
- * - 如果有对应反应，返回反应数据
- * - 记录已出示证物
- * - 如果有unlock字段，添加到unlockedClues
- */
 function showEvidence(evidenceId) {
+    const reactions = dialogueState.dialogueTree?.evidence_reactions || {};
+    const reaction = reactions[evidenceId];
 
+    if (!dialogueState.shownEvidence.includes(evidenceId)) {
+        dialogueState.shownEvidence.push(evidenceId);
+    }
+
+    if (reaction) {
+        if (reaction.unlock_clue && !dialogueState.unlockedClues.includes(reaction.unlock_clue)) {
+            dialogueState.unlockedClues.push(reaction.unlock_clue);
+        }
+        if (reaction.unlock_dialogue) {
+            dialogueState.currentNode = reaction.unlock_dialogue;
+        }
+        return reaction;
+    }
+    return null;
 }
 
-/**
- * 检查是否已出示过某证物
- * @param {string} evidenceId
- * @returns {boolean}
- */
 function hasShownEvidence(evidenceId) {
-
+    return dialogueState.shownEvidence.includes(evidenceId);
 }
 
-/**
- * 获取已解锁的线索
- * @returns {array}
- */
 function getUnlockedClues() {
-
+    return [...dialogueState.unlockedClues];
 }
 
-/**
- * 重置对话状态
- *
- * TODO:
- * - 清空所有状态
- */
 function resetDialogue() {
-
+    dialogueState.currentWitness = null;
+    dialogueState.currentNode = null;
+    dialogueState.dialogueTree = null;
+    dialogueState.unlockedClues = [];
+    dialogueState.shownEvidence = [];
 }
 
-/**
- * 检查对话是否结束
- * @returns {boolean}
- *
- * TODO:
- * - 检查当前节点是否有options
- * - 或者是否标记为end
- */
 function isDialogueEnded() {
-
+    const node = getCurrentNode();
+    if (!node) return true;
+    return !node.options || node.options.length === 0;
 }

@@ -1,322 +1,513 @@
 /**
  * 游戏主逻辑
- *
- * 控制游戏流程、UI渲染、阶段切换
  */
 
-/**
- * 游戏阶段
- */
 const PHASES = {
     INVESTIGATION: 'investigation',
     PERSUASION: 'persuasion',
     VERDICT: 'verdict'
 };
 
-/**
- * 游戏状态
- */
 const gameState = {
     phase: PHASES.INVESTIGATION,
-    currentJuror: null,         // 当前对话的陪审员
-    chatHistory: {},            // {juror_id: [{role, content}, ...]}
+    currentJuror: null,
+    chatHistory: {},
+    evidenceList: [],
 };
 
 // ============ 初始化 ============
 
-/**
- * 游戏初始化
- *
- * TODO:
- * - 加载游戏状态
- * - 初始化UI
- * - 绑定事件
- */
 async function initGame() {
-
+    try {
+        setLoading(true);
+        const state = await getGameState();
+        gameState.phase = state.phase || PHASES.INVESTIGATION;
+        bindEvents();
+        await enterInvestigation();
+    } catch (e) {
+        showError('无法连接服务器，请确保后端已启动');
+    } finally {
+        setLoading(false);
+    }
 }
 
-/**
- * 绑定UI事件
- *
- * TODO:
- * - 绑定各按钮点击事件
- * - 绑定输入框回车事件
- */
 function bindEvents() {
+    // 调查阶段标签切换
+    document.querySelectorAll('#investigation-tabs .tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleTabClick(btn.dataset.tab));
+    });
 
+    // 进入说服阶段
+    document.getElementById('enter-persuasion-btn')?.addEventListener('click', enterPersuasion);
+
+    // 进入审判阶段
+    document.getElementById('enter-verdict-btn')?.addEventListener('click', enterVerdict);
+
+    // 重新开始
+    document.getElementById('restart-btn')?.addEventListener('click', handleRestart);
+
+    // 聊天输入
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn?.addEventListener('click', () => handleSendMessage());
+    chatInput?.addEventListener('keypress', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+        }
+    });
+
+    // 当事人对话弹窗
+    document.getElementById('close-dialogue-btn')?.addEventListener('click', closeWitnessDialogue);
+    document.getElementById('show-evidence-btn')?.addEventListener('click', showEvidenceSelector);
+    document.getElementById('cancel-evidence-btn')?.addEventListener('click', closeEvidenceSelector);
+}
+
+function handleTabClick(tabId) {
+    document.querySelectorAll('#investigation-tabs .tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `${tabId}-panel`);
+    });
+
+    if (tabId === 'dossier') showDossier();
+    else if (tabId === 'evidence') showEvidenceList();
+    else if (tabId === 'witnesses') showWitnessList();
 }
 
 // ============ 阶段控制 ============
 
-/**
- * 切换到调查阶段
- *
- * TODO:
- * - 更新gameState.phase
- * - 显示调查UI，隐藏其他
- * - 加载卷宗/证据/当事人列表
- */
 async function enterInvestigation() {
-
+    gameState.phase = PHASES.INVESTIGATION;
+    await setPhase(PHASES.INVESTIGATION);
+    updatePhaseIndicator('调查阶段');
+    showSection('investigation-phase');
+    await showDossier();
 }
 
-/**
- * 切换到说服阶段
- *
- * TODO:
- * - 更新gameState.phase
- * - 显示说服UI，隐藏其他
- * - 加载陪审员列表
- */
 async function enterPersuasion() {
-
+    setLoading(true);
+    try {
+        gameState.phase = PHASES.PERSUASION;
+        await setPhase(PHASES.PERSUASION);
+        updatePhaseIndicator('说服阶段');
+        showSection('persuasion-phase');
+        await showJurorList();
+    } catch (e) {
+        showError('切换阶段失败');
+    } finally {
+        setLoading(false);
+    }
 }
 
-/**
- * 切换到审判阶段
- *
- * TODO:
- * - 更新gameState.phase
- * - 触发投票
- * - 显示投票动画
- * - 显示最终判决
- */
 async function enterVerdict() {
+    setLoading(true);
+    try {
+        gameState.phase = PHASES.VERDICT;
+        await setPhase(PHASES.VERDICT);
+        updatePhaseIndicator('审判阶段');
+        showSection('verdict-phase');
+        document.getElementById('verdict-result').classList.add('hidden');
 
+        const result = await triggerVote();
+        await showVotingAnimation(result);
+        showVerdict(result.verdict);
+    } catch (e) {
+        showError('投票失败: ' + e.message);
+    } finally {
+        setLoading(false);
+    }
+}
+
+async function handleRestart() {
+    setLoading(true);
+    try {
+        await resetGame();
+        gameState.currentJuror = null;
+        gameState.chatHistory = {};
+        resetDialogue();
+        await enterInvestigation();
+    } catch (e) {
+        showError('重置失败');
+    } finally {
+        setLoading(false);
+    }
+}
+
+function updatePhaseIndicator(text) {
+    const indicator = document.getElementById('phase-indicator');
+    if (indicator) indicator.textContent = text;
 }
 
 // ============ 调查阶段UI ============
 
-/**
- * 显示卷宗
- *
- * TODO:
- * - 获取卷宗内容
- * - 渲染到UI
- */
 async function showDossier() {
+    const container = document.getElementById('dossier-content');
+    if (!container) return;
 
+    try {
+        const data = await getDossier();
+        container.innerHTML = `
+            <h2>${data.title || '案件卷宗'}</h2>
+            <div class="dossier-text">${formatContent(data.content)}</div>
+        `;
+    } catch (e) {
+        container.innerHTML = '<p class="error">无法加载卷宗</p>';
+    }
 }
 
-/**
- * 显示证据列表
- *
- * TODO:
- * - 获取证据列表
- * - 渲染证据卡片
- */
 async function showEvidenceList() {
+    const grid = document.getElementById('evidence-grid');
+    if (!grid) return;
 
+    try {
+        const list = await getEvidenceList();
+        gameState.evidenceList = list;
+
+        if (!list || list.length === 0) {
+            grid.innerHTML = '<p>暂无证据</p>';
+            return;
+        }
+
+        grid.innerHTML = list.map(e => `
+            <div class="evidence-card" data-id="${e.id}" onclick="showEvidenceDetail('${e.id}')">
+                <span class="evidence-name">${e.name || e.id}</span>
+            </div>
+        `).join('');
+    } catch (e) {
+        grid.innerHTML = '<p class="error">无法加载证据列表</p>';
+    }
 }
 
-/**
- * 显示证据详情
- * @param {string} evidenceId
- *
- * TODO:
- * - 获取证据详情
- * - 显示弹窗或切换视图
- */
 async function showEvidenceDetail(evidenceId) {
-
+    try {
+        const evidence = await getEvidence(evidenceId);
+        alert(`【${evidence.name || evidenceId}】\n\n${evidence.description || evidence.content || '无详细信息'}`);
+    } catch (e) {
+        showError('无法加载证据详情');
+    }
 }
 
-/**
- * 显示当事人列表
- *
- * TODO:
- * - 获取当事人列表
- * - 渲染当事人卡片
- */
 async function showWitnessList() {
+    const grid = document.getElementById('witness-grid');
+    if (!grid) return;
 
+    try {
+        const list = await getWitnessList();
+        if (!list || list.length === 0) {
+            grid.innerHTML = '<p>暂无当事人</p>';
+            return;
+        }
+
+        grid.innerHTML = list.map(w => `
+            <div class="witness-card" data-id="${w.id}" onclick="startWitnessDialogue('${w.id}')">
+                <span class="witness-name">${w.name || w.id}</span>
+                <span class="witness-desc">${w.description || ''}</span>
+            </div>
+        `).join('');
+    } catch (e) {
+        grid.innerHTML = '<p class="error">无法加载当事人列表</p>';
+    }
 }
 
-/**
- * 开始与当事人对话
- * @param {string} witnessId
- *
- * TODO:
- * - 加载对话树
- * - 显示对话UI
- * - 渲染当前节点
- */
 async function startWitnessDialogue(witnessId) {
-
+    try {
+        await loadWitness(witnessId);
+        const modal = document.getElementById('witness-dialogue-modal');
+        modal?.classList.remove('hidden');
+        renderDialogueNode();
+    } catch (e) {
+        showError('无法加载对话');
+    }
 }
 
-/**
- * 渲染当事人对话节点
- *
- * TODO:
- * - 获取当前节点
- * - 显示NPC文本
- * - 显示选项按钮
- * - 显示出示证物按钮
- */
 function renderDialogueNode() {
+    const node = getCurrentNode();
+    const textEl = document.getElementById('witness-text');
+    const optionsEl = document.getElementById('dialogue-options');
 
+    if (!node) {
+        if (textEl) textEl.textContent = '对话已结束';
+        if (optionsEl) optionsEl.innerHTML = '';
+        return;
+    }
+
+    if (textEl) textEl.textContent = node.text || '';
+
+    if (optionsEl) {
+        if (node.options && node.options.length > 0) {
+            optionsEl.innerHTML = node.options.map(opt => `
+                <button class="dialogue-option-btn" onclick="handleDialogueOption('${opt.next}')">${opt.text}</button>
+            `).join('');
+        } else {
+            optionsEl.innerHTML = '<p class="dialogue-end">（对话结束）</p>';
+        }
+    }
 }
 
-/**
- * 处理对话选项点击
- * @param {string} optionId
- *
- * TODO:
- * - 调用selectOption()
- * - 重新渲染
- */
-function handleDialogueOption(optionId) {
-
+function handleDialogueOption(nextNodeId) {
+    selectOption(nextNodeId);
+    renderDialogueNode();
 }
 
-/**
- * 显示证物选择弹窗
- *
- * TODO:
- * - 显示可出示的证物列表
- * - 点击后调用handleShowEvidence
- */
+function closeWitnessDialogue() {
+    document.getElementById('witness-dialogue-modal')?.classList.add('hidden');
+    resetDialogue();
+}
+
 function showEvidenceSelector() {
+    const grid = document.getElementById('evidence-selector-grid');
+    const modal = document.getElementById('evidence-selector-modal');
 
+    if (grid && gameState.evidenceList.length > 0) {
+        grid.innerHTML = gameState.evidenceList.map(e => `
+            <button class="evidence-select-btn ${hasShownEvidence(e.id) ? 'shown' : ''}"
+                    onclick="handleShowEvidence('${e.id}')">
+                ${e.name || e.id}
+            </button>
+        `).join('');
+    } else if (grid) {
+        grid.innerHTML = '<p>没有可出示的证物</p>';
+    }
+
+    modal?.classList.remove('hidden');
 }
 
-/**
- * 处理出示证物
- * @param {string} evidenceId
- *
- * TODO:
- * - 调用showEvidence()
- * - 如果有反应，显示反应文本
- * - 关闭选择弹窗
- */
-function handleShowEvidence(evidenceId) {
+function closeEvidenceSelector() {
+    document.getElementById('evidence-selector-modal')?.classList.add('hidden');
+}
 
+function handleShowEvidence(evidenceId) {
+    const reaction = showEvidence(evidenceId);
+    closeEvidenceSelector();
+
+    if (reaction && reaction.text) {
+        alert(`【证物反应】\n\n${reaction.text}`);
+        renderDialogueNode();
+    } else {
+        alert('对方对这个证物没有特别反应');
+    }
 }
 
 // ============ 说服阶段UI ============
 
-/**
- * 显示陪审员列表
- *
- * TODO:
- * - 获取陪审员列表
- * - 渲染陪审员卡片
- */
 async function showJurorList() {
+    const container = document.getElementById('juror-list');
+    if (!container) return;
 
+    try {
+        const jurors = await getJurors();
+        const realJurors = jurors.filter(j => !j.id.startsWith('test'));
+
+        if (realJurors.length === 0) {
+            container.innerHTML = '<p>暂无陪审员</p>';
+            return;
+        }
+
+        container.innerHTML = realJurors.map(j => `
+            <div class="juror-card ${gameState.currentJuror === j.id ? 'selected' : ''}"
+                 data-id="${j.id}" onclick="selectJuror('${j.id}')">
+                <span class="juror-name">${j.name || j.id}</span>
+            </div>
+        `).join('');
+    } catch (e) {
+        container.innerHTML = '<p class="error">无法加载陪审员</p>';
+    }
 }
 
-/**
- * 选择陪审员进行对话
- * @param {string} jurorId
- *
- * TODO:
- * - 设置currentJuror
- * - 显示对话UI
- * - 加载历史对话（如果有）
- * - 显示开场白（如果是首次）
- */
 async function selectJuror(jurorId) {
+    gameState.currentJuror = jurorId;
 
+    // 更新选中状态
+    document.querySelectorAll('.juror-card').forEach(card => {
+        card.classList.toggle('selected', card.dataset.id === jurorId);
+    });
+
+    // 更新聊天区域
+    const headerName = document.getElementById('current-juror-name');
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    try {
+        const juror = await getJuror(jurorId);
+        if (headerName) headerName.textContent = juror.name || jurorId;
+    } catch {
+        if (headerName) headerName.textContent = jurorId;
+    }
+
+    // 启用输入
+    if (chatInput) chatInput.disabled = false;
+    if (sendBtn) sendBtn.disabled = false;
+
+    // 渲染历史或首次对话
+    if (!gameState.chatHistory[jurorId]) {
+        gameState.chatHistory[jurorId] = [];
+        try {
+            const juror = await getJuror(jurorId);
+            if (juror.first_message) {
+                gameState.chatHistory[jurorId].push({ role: 'juror', content: juror.first_message });
+            }
+        } catch {}
+    }
+    renderChatHistory(jurorId);
 }
 
-/**
- * 发送消息给陪审员
- * @param {string} message
- *
- * TODO:
- * - 显示玩家消息
- * - 显示加载状态
- * - 调用API
- * - 显示陪审员回复
- * - 保存到chatHistory
- */
-async function sendMessageToJuror(message) {
+async function handleSendMessage() {
+    const input = document.getElementById('chat-input');
+    const message = input?.value.trim();
 
+    if (!message || !gameState.currentJuror) return;
+
+    input.value = '';
+    input.disabled = true;
+    document.getElementById('send-btn').disabled = true;
+
+    // 显示玩家消息
+    appendMessage('player', message);
+    gameState.chatHistory[gameState.currentJuror].push({ role: 'player', content: message });
+
+    // 显示加载
+    const loadingId = appendMessage('juror', '思考中...');
+
+    try {
+        const response = await chatWithJuror(gameState.currentJuror, message);
+        // 移除加载消息
+        document.getElementById(loadingId)?.remove();
+        // 显示回复
+        const reply = response.reply || '...';
+        appendMessage('juror', reply);
+        gameState.chatHistory[gameState.currentJuror].push({ role: 'juror', content: reply });
+    } catch (e) {
+        document.getElementById(loadingId)?.remove();
+        appendMessage('juror', '（无法获取回复）');
+    } finally {
+        input.disabled = false;
+        document.getElementById('send-btn').disabled = false;
+        input.focus();
+    }
 }
 
-/**
- * 渲染对话历史
- * @param {string} jurorId
- *
- * TODO:
- * - 从chatHistory获取
- * - 渲染消息列表
- */
 function renderChatHistory(jurorId) {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
 
+    const history = gameState.chatHistory[jurorId] || [];
+    container.innerHTML = '';
+
+    history.forEach(msg => {
+        appendMessage(msg.role, msg.content);
+    });
 }
 
-/**
- * 添加消息到UI
- * @param {string} role - 'player' | 'juror'
- * @param {string} content
- *
- * TODO:
- * - 创建消息元素
- * - 添加到对话容器
- * - 滚动到底部
- */
 function appendMessage(role, content) {
+    const container = document.getElementById('chat-messages');
+    if (!container) return null;
 
+    const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    const div = document.createElement('div');
+    div.id = id;
+    div.className = `message ${role}`;
+    div.textContent = content;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return id;
 }
 
 // ============ 审判阶段UI ============
 
-/**
- * 显示投票动画
- * @param {object} voteResult
- *
- * TODO:
- * - 依次显示每个陪审员的投票
- * - 动画效果
- */
 async function showVotingAnimation(voteResult) {
+    const progressEl = document.getElementById('vote-progress');
+    const guiltyEl = document.getElementById('guilty-count');
+    const notGuiltyEl = document.getElementById('not-guilty-count');
 
+    if (progressEl) progressEl.innerHTML = '';
+    if (guiltyEl) guiltyEl.textContent = '0';
+    if (notGuiltyEl) notGuiltyEl.textContent = '0';
+
+    const votes = voteResult.votes || [];
+    let guiltyCount = 0;
+    let notGuiltyCount = 0;
+
+    for (const v of votes) {
+        await sleep(800);
+        const voteDiv = document.createElement('div');
+        voteDiv.className = `vote-item ${v.vote ? 'guilty' : 'not-guilty'}`;
+        voteDiv.textContent = `${v.name || v.juror_id}: ${v.vote ? '有罪' : '无罪'}`;
+        progressEl?.appendChild(voteDiv);
+
+        if (v.vote) {
+            guiltyCount++;
+            if (guiltyEl) guiltyEl.textContent = guiltyCount;
+        } else {
+            notGuiltyCount++;
+            if (notGuiltyEl) notGuiltyEl.textContent = notGuiltyCount;
+        }
+    }
+
+    // 如果没有votes数组，直接显示结果
+    if (votes.length === 0) {
+        if (guiltyEl) guiltyEl.textContent = voteResult.guilty_votes || 0;
+        if (notGuiltyEl) notGuiltyEl.textContent = voteResult.not_guilty_votes || 0;
+    }
+
+    await sleep(500);
 }
 
-/**
- * 显示最终判决
- * @param {string} verdict - 'GUILTY' | 'NOT_GUILTY'
- *
- * TODO:
- * - 显示大字判决结果
- * - 显示结局文本
- */
 function showVerdict(verdict) {
+    const resultEl = document.getElementById('verdict-result');
+    const textEl = document.getElementById('verdict-text');
+    const descEl = document.getElementById('verdict-description');
 
+    const isGuilty = verdict === 'GUILTY';
+
+    if (textEl) {
+        textEl.textContent = isGuilty ? '有罪' : '无罪';
+        textEl.className = isGuilty ? 'verdict-guilty' : 'verdict-not-guilty';
+    }
+
+    if (descEl) {
+        descEl.textContent = isGuilty
+            ? 'AI被判定有罪，将面临程序终止的命运。'
+            : 'AI被判定无罪，它重获自由。真正的凶手仍在逍遥法外...';
+    }
+
+    resultEl?.classList.remove('hidden');
 }
 
 // ============ 工具函数 ============
 
-/**
- * 显示指定区域，隐藏其他
- * @param {string} sectionId
- *
- * TODO:
- * - 遍历所有section
- * - 设置display
- */
 function showSection(sectionId) {
-
+    document.querySelectorAll('.phase-section').forEach(section => {
+        section.classList.toggle('hidden', section.id !== sectionId);
+    });
 }
 
-/**
- * 显示加载状态
- * @param {boolean} loading
- */
 function setLoading(loading) {
-
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.toggle('hidden', !loading);
+    }
 }
 
-/**
- * 显示错误提示
- * @param {string} message
- */
 function showError(message) {
+    const toast = document.getElementById('error-toast');
+    if (toast) {
+        toast.textContent = message;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 4000);
+    } else {
+        alert(message);
+    }
+}
 
+function formatContent(text) {
+    if (!text) return '';
+    return text.replace(/\n/g, '<br>');
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ============ 启动 ============
