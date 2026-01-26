@@ -35,4 +35,12 @@ node_modules/
 # Foundry
 cache/
 out/
+broadcast/
+
+# Logs
 llm_error.log
+*.log
+
+# Sensitive
+.env
+*.env
