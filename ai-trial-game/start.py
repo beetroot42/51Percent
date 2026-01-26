@@ -102,18 +102,51 @@ def check_llm_api():
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url if base_url else None)
 
-        # 简单测试
+        # 测试API - 要求模型返回名称
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": "Hi"}],
-            max_tokens=5
+            messages=[{"role": "user", "content": "Please tell me your model name in one line."}],
+            max_tokens=50
         )
-        ok(f"LLM API 连接成功 (模型: {model})")
+
+        reply = response.choices[0].message.content.strip() if response.choices else ""
+        if not reply:
+            fail("LLM API 返回空回复")
+            save_api_error("API返回空回复", {"model": model, "response": str(response)})
+            return True, "LLM API 返回空回复 (说服阶段可能异常)"
+
+        ok(f"LLM API 连接成功")
+        ok(f"模型回复: {reply[:60]}{'...' if len(reply) > 60 else ''}")
         return True, None
 
     except Exception as e:
-        warn(f"LLM API 连接失败: {str(e)[:50]}")
+        error_detail = str(e)
+        save_api_error(error_detail, {
+            "api_key": api_key[:10] + "..." if api_key else "未设置",
+            "base_url": base_url,
+            "model": model
+        })
+        warn(f"LLM API 连接失败")
+        fail(f"错误详情已保存到: llm_error.log")
         return True, "LLM API 不可用 (说服阶段无法对话)"
+
+
+def save_api_error(error_msg, context):
+    """保存API错误报告"""
+    log_path = Path(__file__).parent / "llm_error.log"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write("=" * 50 + "\n")
+        f.write("LLM API 错误报告\n")
+        f.write("=" * 50 + "\n\n")
+        f.write(f"错误信息:\n{error_msg}\n\n")
+        f.write("配置信息:\n")
+        for k, v in context.items():
+            f.write(f"  {k}: {v}\n")
+        f.write("\n可能的解决方案:\n")
+        f.write("  1. 检查 API Key 是否正确\n")
+        f.write("  2. 检查 Base URL 是否可访问\n")
+        f.write("  3. 检查网络连接/代理设置\n")
+        f.write("  4. 检查模型名称是否正确\n")
 
 def check_anvil():
     """检查Anvil本地链"""

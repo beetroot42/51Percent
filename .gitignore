@@ -35,3 +35,4 @@ node_modules/
 # Foundry
 cache/
 out/
+llm_error.log
