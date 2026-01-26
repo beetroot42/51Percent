@@ -3,6 +3,7 @@ description: Pragmatic coding standards - concise, direct, no over-engineering, 
 allowed-tools: Read, Write, Edit
 version: 2.0
 priority: CRITICAL
+语言：永远使用中文沟通
 ---
 
 # Clean Code - Pragmatic AI Coding Standards
