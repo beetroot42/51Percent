@@ -1,0 +1,16 @@
+{
+  "id": "evidence_template",
+  "name": "证据名称",
+  "icon": "evidence_icon.png",
+  "type": "document",
+
+  "short_description": "证据的简短描述，显示在列表中",
+
+  "content": "证据的详细内容。可以是文档的全文、监控录像的描述、聊天记录等。\n\n支持换行，建议用清晰的格式呈现。\n\n如果是聊天记录类的证据，可以这样格式化：\n\n[2024-01-15 14:32] 用户A: 消息内容\n[2024-01-15 14:33] 用户B: 回复内容",
+
+  "metadata": {
+    "source": "证据来源",
+    "date": "2024-01-15",
+    "verified": true
+  }
+}

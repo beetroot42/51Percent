@@ -1,0 +1,61 @@
+{
+  "id": "witness_template",
+  "name": "模板当事人",
+  "portrait": "template.png",
+  "description": "当事人的简短描述，显示在列表中",
+
+  "dialogues": [
+    {
+      "id": "start",
+      "text": "当事人的开场白或初始状态文本",
+      "options": [
+        {
+          "text": "选项1的显示文字",
+          "next": "node_a"
+        },
+        {
+          "text": "选项2的显示文字",
+          "next": "node_b"
+        }
+      ]
+    },
+    {
+      "id": "node_a",
+      "text": "选择选项1后当事人的回应",
+      "options": [
+        {
+          "text": "继续追问",
+          "next": "node_a1"
+        },
+        {
+          "text": "换个话题",
+          "next": "start"
+        }
+      ]
+    },
+    {
+      "id": "node_b",
+      "text": "选择选项2后当事人的回应",
+      "options": []
+    },
+    {
+      "id": "node_a1",
+      "text": "更深入的对话内容...",
+      "options": [],
+      "unlock_clue": "clue_id"
+    }
+  ],
+
+  "evidence_reactions": {
+    "evidence_id_1": {
+      "text": "当玩家出示这个证据时，当事人的反应",
+      "unlock_clue": "new_clue_id",
+      "unlock_dialogue": "hidden_node"
+    },
+    "evidence_id_2": {
+      "text": "对另一个证据的反应，可能没有解锁内容",
+      "unlock_clue": null,
+      "unlock_dialogue": null
+    }
+  }
+}

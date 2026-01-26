@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI审判</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 标题栏 -->
+        <header id="header">
+            <h1>AI审判</h1>
+            <div id="phase-indicator">调查阶段</div>
+        </header>
+
+        <!-- ============ 调查阶段 ============ -->
+        <section id="investigation-phase" class="phase-section">
+            <!-- 导航标签 -->
+            <nav id="investigation-tabs">
+                <button class="tab-btn active" data-tab="dossier">卷宗</button>
+                <button class="tab-btn" data-tab="evidence">证据</button>
+                <button class="tab-btn" data-tab="witnesses">当事人</button>
+            </nav>
+
+            <!-- 卷宗内容 -->
+            <div id="dossier-panel" class="tab-panel active">
+                <div id="dossier-content">
+                    <!-- TODO: 动态加载卷宗内容 -->
+                </div>
+            </div>
+
+            <!-- 证据列表 -->
+            <div id="evidence-panel" class="tab-panel">
+                <div id="evidence-grid">
+                    <!-- TODO: 动态生成证据卡片 -->
+                    <!--
+                    <div class="evidence-card" data-id="xxx">
+                        <img src="assets/evidence-icon.png" alt="">
+                        <span>证据名称</span>
+                    </div>
+                    -->
+                </div>
+            </div>
+
+            <!-- 当事人列表 -->
+            <div id="witnesses-panel" class="tab-panel">
+                <div id="witness-grid">
+                    <!-- TODO: 动态生成当事人卡片 -->
+                    <!--
+                    <div class="witness-card" data-id="xxx">
+                        <img src="assets/portrait.png" alt="">
+                        <span>当事人名称</span>
+                    </div>
+                    -->
+                </div>
+            </div>
+
+            <!-- 当事人对话弹窗 -->
+            <div id="witness-dialogue-modal" class="modal hidden">
+                <div class="modal-content">
+                    <div id="witness-portrait"></div>
+                    <div id="witness-text"></div>
+                    <div id="dialogue-options">
+                        <!-- TODO: 动态生成选项按钮 -->
+                    </div>
+                    <button id="show-evidence-btn">出示证物</button>
+                    <button id="close-dialogue-btn">结束对话</button>
+                </div>
+            </div>
+
+            <!-- 证物选择弹窗 -->
+            <div id="evidence-selector-modal" class="modal hidden">
+                <div class="modal-content">
+                    <h3>选择要出示的证物</h3>
+                    <div id="evidence-selector-grid">
+                        <!-- TODO: 动态生成 -->
+                    </div>
+                    <button id="cancel-evidence-btn">取消</button>
+                </div>
+            </div>
+
+            <!-- 进入说服阶段按钮 -->
+            <div id="investigation-footer">
+                <button id="enter-persuasion-btn">我准备好了，进入说服阶段</button>
+            </div>
+        </section>
+
+        <!-- ============ 说服阶段 ============ -->
+        <section id="persuasion-phase" class="phase-section hidden">
+            <!-- 陪审员列表 -->
+            <div id="juror-list">
+                <!-- TODO: 动态生成陪审员卡片 -->
+                <!--
+                <div class="juror-card" data-id="xxx">
+                    <img src="assets/juror.png" alt="">
+                    <span>陪审员名称</span>
+                </div>
+                -->
+            </div>
+
+            <!-- 对话区域 -->
+            <div id="chat-area">
+                <div id="chat-header">
+                    <span id="current-juror-name">选择一位陪审员</span>
+                </div>
+                <div id="chat-messages">
+                    <!-- TODO: 动态生成消息 -->
+                    <!--
+                    <div class="message player">玩家消息</div>
+                    <div class="message juror">陪审员消息</div>
+                    -->
+                </div>
+                <div id="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="输入你的话..." disabled>
+                    <button id="send-btn" disabled>发送</button>
+                </div>
+            </div>
+
+            <!-- 进入审判按钮 -->
+            <div id="persuasion-footer">
+                <button id="enter-verdict-btn">结束说服，进入审判</button>
+            </div>
+        </section>
+
+        <!-- ============ 审判阶段 ============ -->
+        <section id="verdict-phase" class="phase-section hidden">
+            <!-- 投票动画区域 -->
+            <div id="voting-animation">
+                <div id="vote-progress">
+                    <!-- TODO: 动态显示每个陪审员的投票 -->
+                </div>
+            </div>
+
+            <!-- 投票统计 -->
+            <div id="vote-stats">
+                <div class="vote-count">
+                    <span class="label">有罪</span>
+                    <span id="guilty-count">0</span>
+                </div>
+                <div class="vote-count">
+                    <span class="label">无罪</span>
+                    <span id="not-guilty-count">0</span>
+                </div>
+            </div>
+
+            <!-- 最终判决 -->
+            <div id="verdict-result" class="hidden">
+                <h2 id="verdict-text"></h2>
+                <p id="verdict-description"></p>
+            </div>
+
+            <!-- 重新开始 -->
+            <div id="verdict-footer">
+                <button id="restart-btn">重新开始</button>
+            </div>
+        </section>
+
+        <!-- 全局加载指示器 -->
+        <div id="loading-overlay" class="hidden">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- 错误提示 -->
+        <div id="error-toast" class="hidden"></div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/dialogue.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
