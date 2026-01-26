@@ -13,6 +13,8 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from services.agent_manager import AgentManager
@@ -344,10 +346,28 @@ async def get_witness(witness_id: str):
     return json.loads(witness_path.read_text(encoding="utf-8"))
 
 
+# ============ Frontend Static Files ============
+
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+
+@app.get("/game")
+async def serve_frontend():
+    """Serve the game frontend"""
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+# Mount static files (css, js)
+if FRONTEND_DIR.exists():
+    app.mount("/css", StaticFiles(directory=FRONTEND_DIR / "css"), name="css")
+    app.mount("/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
+
+
 # ============ Startup ============
 
 if __name__ == "__main__":
     import uvicorn
     server_host = os.getenv("SERVER_HOST", "0.0.0.0")
     server_port = int(os.getenv("SERVER_PORT", "5000"))
+    print(f"\n🎮 AI Trial Game")
+    print(f"   API: http://localhost:{server_port}/")
+    print(f"   Game: http://localhost:{server_port}/game\n")
     uvicorn.run(app, host=server_host, port=server_port)

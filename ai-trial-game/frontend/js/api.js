@@ -2,7 +2,7 @@
  * API调用模块
  */
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = '';
 
 /**
  * 通用请求函数
