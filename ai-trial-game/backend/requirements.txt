@@ -4,6 +4,7 @@ uvicorn>=0.23.0
 
 # LLM
 anthropic>=0.18.0
+openai>=1.0.0
 
 # SpoonOS (从本地安装或pip)
 # pip install -e ../spoon-core-main/spoon-core-main
