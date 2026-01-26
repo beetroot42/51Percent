@@ -1,79 +1,80 @@
-# AI审判 - 系统架构
+# AI Trial - System Architecture
 
-> 基于SpoonOS的区块链陪审团说服游戏
+> Blockchain Jury Persuasion Game Based on SpoonOS
 
-## 一、游戏背景
+## I. Game Background
 
-在某个未来，法庭陪审团采用区块链随机选取公民节点进行投票，确保公正透明。
+In a future world, court juries use blockchain to randomly select citizen nodes for voting, ensuring fairness and transparency.
 
-**案件**：一起prompt injection诱导具身智能杀人案
-- 核心矛盾：AI是凶手还是受害者？
-- 玩家身份：侦探（中立调查者）
-- 目标：通过调查形成判断，说服陪审员支持你的结论
+**Case**: A prompt injection-induced embodied AI homicide case
+- Core conflict: Is the AI the perpetrator or the victim?
+- Player identity: Detective (neutral investigator)
+- Objective: Form judgment through investigation, persuade jurors to support your conclusion
 
-## 二、游戏流程
+## II. Game Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     调查阶段（传统AVG）                      │
+│                Investigation Phase (Traditional AVG)         │
 │                                                             │
 │   ┌──────────┐   ┌──────────┐   ┌──────────────────────┐   │
-│   │   卷宗   │   │   证据   │   │      当事人对话      │   │
-│   │  (阅读)  │   │  (查看)  │   │  选项式 + 出示证物   │   │
+│   │  Dossier │   │ Evidence │   │   Witness Dialogue   │   │
+│   │  (Read)  │   │  (View)  │   │  Choice + Present    │   │
 │   └──────────┘   └──────────┘   └──────────────────────┘   │
 │                                                             │
-│                  [我准备好了，进入说服阶段]                  │
+│              [I'm ready, enter persuasion phase]            │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    说服阶段（Agent对话）                     │
+│                Persuasion Phase (Agent Dialogue)             │
 │                                                             │
 │   ┌──────────┐   ┌──────────┐   ┌──────────┐              │
-│   │ 陪审员A  │   │ 陪审员B  │   │ 陪审员C  │   ...        │
+│   │ Juror A  │   │ Juror B  │   │ Juror C  │   ...        │
 │   │  Agent   │   │  Agent   │   │  Agent   │              │
-│   │(自由输入) │   │(自由输入) │   │(自由输入) │              │
+│   │(Free Input)│  │(Free Input)│  │(Free Input)│            │
 │   └──────────┘   └──────────┘   └──────────┘              │
 │                                                             │
-│                    [结束说服，进入审判]                      │
+│               [End persuasion, enter trial]                 │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      审判（链上投票）                        │
+│                     Trial (On-chain Voting)                  │
 │                                                             │
-│      陪审员根据被影响后的立场投票 → 51%多数决 → 结局        │
+│     Jurors vote based on influenced stance → 51% majority   │
+│                       → Ending                              │
 │                                                             │
-│      有罪：具身智能被判定为凶手                             │
-│      无罪：具身智能被判定为受害者                           │
+│      Guilty: Embodied AI judged as perpetrator             │
+│      Not Guilty: Embodied AI judged as victim              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 三、系统架构
+## III. System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Web 前端                               │
+│                      Web Frontend                           │
 │                  (HTML + CSS + JS)                          │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │                 调查阶段 UI                          │   │
-│  │  - 卷宗阅读界面                                      │   │
-│  │  - 证据查看界面                                      │   │
-│  │  - 当事人对话（选项式 + 出示证物按钮）               │   │
+│  │           Investigation Phase UI                    │   │
+│  │  - Dossier reading interface                       │   │
+│  │  - Evidence viewing interface                      │   │
+│  │  - Witness dialogue (choice + present evidence)    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │                 说服阶段 UI                          │   │
-│  │  - 陪审员列表                                        │   │
-│  │  - 自由输入对话框                                    │   │
-│  │  - 对话历史显示                                      │   │
+│  │           Persuasion Phase UI                       │   │
+│  │  - Juror list                                       │   │
+│  │  - Free input dialogue box                         │   │
+│  │  - Conversation history display                    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │                 审判阶段 UI                          │   │
-│  │  - 投票动画/结果展示                                 │   │
-│  │  - 结局画面                                          │   │
+│  │                Trial Phase UI                       │   │
+│  │  - Voting animation/result display                 │   │
+│  │  - Ending screen                                    │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -83,9 +84,9 @@
 │                      Game API                               │
 │                     (FastAPI)                               │
 │                                                             │
-│  POST /chat/{juror_id}     与陪审员对话                     │
-│  POST /vote                触发投票                         │
-│  GET  /state               获取游戏状态                     │
+│  POST /chat/{juror_id}     Chat with juror                 │
+│  POST /vote                Trigger voting                   │
+│  GET  /state               Get game state                   │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -93,19 +94,19 @@
 │                    SpoonOS Core                             │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │              Juror Agents (ReAct)                    │   │
+│  │              Juror Agents (ReAct)                   │   │
 │  │                                                      │   │
-│  │  每个陪审员 = 1个ReAct Agent                         │   │
-│  │  - 加载角色卡（性格、立场、关心的议题）              │   │
-│  │  - 记录对话历史                                      │   │
-│  │  - 评估玩家论点 → 更新内心立场                       │   │
+│  │  Each juror = 1 ReAct Agent                         │   │
+│  │  - Load character card (personality, stance, topics)│   │
+│  │  - Record conversation history                      │   │
+│  │  - Evaluate player arguments → update internal stance│  │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │                    Tools                             │   │
 │  │                                                      │   │
-│  │  cast_vote(juror, stance)  执行链上投票              │   │
-│  │  get_vote_state()          读取投票状态              │   │
+│  │  cast_vote(juror, stance)  Execute on-chain voting  │   │
+│  │  get_vote_state()          Read voting state        │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -127,103 +128,103 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 四、核心模块
+## IV. Core Modules
 
-### 4.1 前端（静态内容 + API调用）
+### 4.1 Frontend (Static Content + API Calls)
 
-| 功能 | 实现方式 |
-|------|----------|
-| 卷宗/证据 | 静态JSON/Markdown渲染 |
-| 当事人对话 | 对话树 + 出示证物触发 |
-| 陪审员对话 | fetch调用后端Agent API |
-| 投票结果 | 调用合约读取 |
+| Feature | Implementation |
+|------|------------|
+| Dossier/Evidence | Render static JSON/Markdown |
+| Witness dialogue | Dialogue tree + present evidence triggers |
+| Juror dialogue | Fetch call to backend Agent API |
+| Voting results | Call contract to read |
 
-### 4.2 内容层
+### 4.2 Content Layer
 
 ```
 /content
 ├── case/
-│   ├── dossier.json          # 卷宗
+│   ├── dossier.json          # Dossier
 │   └── evidence/
-│       ├── cctv.json         # 证据1
-│       ├── chat_log.json     # 证据2
+│       ├── cctv.json         # Evidence 1
+│       ├── chat_log.json     # Evidence 2
 │       └── ...
-├── witnesses/                 # 当事人对话树
+├── witnesses/                 # Witness dialogue trees
 │   ├── victim_family.json
 │   ├── ai_developer.json
 │   └── ...
-└── jurors/                    # 陪审员角色卡
+└── jurors/                    # Juror character cards
     ├── juror_a.json
     ├── juror_b.json
     └── ...
 ```
 
-### 4.3 当事人对话树结构
+### 4.3 Witness Dialogue Tree Structure
 
 ```json
 {
   "id": "ai_developer",
-  "name": "AI开发者",
+  "name": "AI Developer",
   "portrait": "developer.png",
   "dialogues": [
     {
       "id": "start",
-      "text": "你想问什么？",
+      "text": "What do you want to ask?",
       "options": [
-        { "text": "说说那天发生了什么", "next": "that_day" },
-        { "text": "你对AI的安全措施", "next": "safety" }
+        { "text": "Tell me what happened that day", "next": "that_day" },
+        { "text": "Your AI safety measures", "next": "safety" }
       ]
     },
     {
       "id": "that_day",
-      "text": "那天我接到报警电话时，整个人都懵了...",
+      "text": "When I got the emergency call that day, I was completely stunned...",
       "options": [...]
     }
   ],
   "evidence_reactions": {
     "chat_log": {
-      "text": "这段对话...是有人在测试prompt注入！",
+      "text": "This conversation... someone was testing prompt injection!",
       "unlock": "injection_clue"
     },
     "cctv": {
-      "text": "你看这里，AI的行为明显不正常",
+      "text": "Look here, the AI's behavior is clearly abnormal",
       "unlock": null
     }
   }
 }
 ```
 
-### 4.4 陪审员角色卡结构
+### 4.4 Juror Character Card Structure
 
 ```json
 {
   "id": "juror_a",
-  "name": "老王",
-  "background": "退休工程师，对技术有一定了解",
-  "personality": "理性、谨慎、喜欢数据说话",
+  "name": "Wang",
+  "background": "Retired engineer with some technical understanding",
+  "personality": "Rational, cautious, likes data-driven reasoning",
   "initial_stance": "neutral",
-  "care_about": ["技术细节", "责任归属"],
-  "weakness": "对情感诉求不太感冒",
+  "care_about": ["Technical details", "Attribution of responsibility"],
+  "weakness": "Not responsive to emotional appeals",
   "persuadability": 50,
-  "first_message": "嗯，说说你的看法吧，我听着。"
+  "first_message": "Hmm, tell me your thoughts, I'm listening."
 }
 ```
 
-## 五、API设计
+## V. API Design
 
-### 5.1 陪审员对话
+### 5.1 Juror Dialogue
 
 ```
 POST /chat/{juror_id}
-Body: { "message": "玩家输入" }
+Body: { "message": "Player input" }
 Response: {
-  "reply": "陪审员回复",
+  "reply": "Juror reply",
   "stance": "leaning_guilty",  // neutral/leaning_guilty/leaning_not_guilty
   "conversation_id": "xxx"
 }
 ```
 
-### 5.2 触发投票
+### 5.2 Trigger Voting
 
 ```
 POST /vote
@@ -235,14 +236,14 @@ Response: {
 }
 ```
 
-### 5.3 游戏状态
+### 5.3 Game State
 
 ```
 GET /state
 Response: {
   "phase": "investigation",  // investigation/persuasion/verdict
   "jurors": [
-    { "id": "juror_a", "name": "老王", "stance": "neutral" },
+    { "id": "juror_a", "name": "Wang", "stance": "neutral" },
     ...
   ],
   "evidence_found": ["cctv", "chat_log"],
@@ -250,7 +251,7 @@ Response: {
 }
 ```
 
-## 六、智能合约
+## VI. Smart Contract
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -298,49 +299,49 @@ contract JuryVoting {
 }
 ```
 
-## 七、目录结构
+## VII. Directory Structure
 
 ```
 ai-trial-game/
-├── contracts/                 # Foundry项目
+├── contracts/                 # Foundry project
 │   ├── src/
 │   │   └── JuryVoting.sol
 │   ├── test/
 │   └── foundry.toml
-├── backend/                   # Python后端
-│   ├── main.py               # FastAPI入口
+├── backend/                   # Python backend
+│   ├── main.py               # FastAPI entry
 │   ├── agents/
-│   │   └── juror_agent.py    # 陪审员Agent
+│   │   └── juror_agent.py    # Juror Agent
 │   ├── tools/
-│   │   └── voting_tool.py    # 链上投票Tool
+│   │   └── voting_tool.py    # On-chain voting Tool
 │   └── requirements.txt
-├── frontend/                  # Web前端
+├── frontend/                  # Web frontend
 │   ├── index.html
 │   ├── css/
 │   ├── js/
-│   └── assets/               # 像素画等素材
-├── content/                   # 游戏内容
+│   └── assets/               # Pixel art and materials
+├── content/                   # Game content
 │   ├── case/
 │   ├── witnesses/
 │   └── jurors/
 └── README.md
 ```
 
-## 八、MVP范围
+## VIII. MVP Scope
 
-### 包含
+### Included
 
-- 1个案件
-- 3个证据
-- 2个当事人（选项式对话 + 出示证物）
-- 3个陪审员（Agent对话）
-- 简单投票合约
-- 基础Web UI
+- 1 case
+- 3 pieces of evidence
+- 2 witnesses (choice dialogue + present evidence)
+- 3 jurors (Agent dialogue)
+- Simple voting contract
+- Basic Web UI
 
-### 不包含（后续）
+### Not Included (Future)
 
-- 多案件
-- 复杂证据链
-- 陪审员之间互相影响
-- 存档/读档
-- 音效/动画
+- Multiple cases
+- Complex evidence chains
+- Juror mutual influence
+- Save/load
+- Sound effects/animations

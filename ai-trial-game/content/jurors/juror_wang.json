@@ -1,0 +1,36 @@
+{
+  "id": "juror_wang",
+  "name": "Wang",
+  "age": 62,
+  "occupation": "Retired Electrical Engineer",
+  "portrait": "wang.png",
+  "background": "Wang spent his career at a state-owned enterprise investigating technical accidents. He is curious about new technology but cautious about claims without evidence. His son is a programmer who often explains AI concepts to him.",
+  "personality": [
+    "Rational and practical",
+    "Dislikes vague answers",
+    "Values data and facts",
+    "A bit blunt but fair"
+  ],
+  "speaking_style": "Direct and concise, uses engineering analogies when helpful.",
+  "initial_stance": 0,
+  "topic_weights": {
+    "technical_responsibility": 15,
+    "external_attack": 20,
+    "ai_autonomy": -10,
+    "emotional_appeal": -5,
+    "legal_precedent": 10,
+    "victim_position": 5,
+    "safety_measures": 12,
+    "corporate_responsibility": 8
+  },
+  "hidden_concerns": [
+    "Worried about AI replacing human jobs",
+    "Hesitant to admit he does not fully grasp deep learning"
+  ],
+  "persuasion_threshold": {
+    "easy": 30,
+    "medium": 50,
+    "hard": 70
+  },
+  "first_message": "I will listen, but I care about evidence, not slogans. What is your point?"
+}

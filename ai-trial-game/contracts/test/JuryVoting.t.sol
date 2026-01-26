@@ -14,7 +14,7 @@ contract JuryVotingTest is Test {
         voting = new JuryVoting(3);
     }
 
-    // ============ Task 1.1 测试 ============
+    // ============ Task 1.1 Tests ============
 
     function test_InitialState() public view {
         assertEq(voting.totalJurors(), 3);
@@ -23,11 +23,11 @@ contract JuryVotingTest is Test {
         assertEq(voting.votingClosed(), false);
     }
 
-    // ============ Task 1.2 测试 ============
+    // ============ Task 1.2 Tests ============
 
     function test_Vote() public {
         vm.prank(juror1);
-        voting.vote(true); // 有罪
+        voting.vote(true); // guilty
 
         assertEq(voting.guiltyVotes(), 1);
         assertEq(voting.hasVoted(juror1), true);
@@ -35,7 +35,7 @@ contract JuryVotingTest is Test {
 
     function test_VoteNotGuilty() public {
         vm.prank(juror1);
-        voting.vote(false); // 无罪
+        voting.vote(false); // not guilty
 
         assertEq(voting.notGuiltyVotes(), 1);
     }
@@ -60,7 +60,7 @@ contract JuryVotingTest is Test {
         assertEq(voting.votingClosed(), true);
     }
 
-    // ============ Task 1.3 测试 ============
+    // ============ Task 1.3 Tests ============
 
     function test_GetVoteState() public {
         vm.prank(juror1);
@@ -102,7 +102,7 @@ contract JuryVotingTest is Test {
         voting.getVerdict();
     }
 
-    // ============ 边界测试 ============
+    // ============ Boundary Tests ============
 
     function test_CannotVoteAfterClosed() public {
         vm.prank(juror1);
@@ -112,7 +112,7 @@ contract JuryVotingTest is Test {
         vm.prank(juror3);
         voting.vote(false);
 
-        // 投票已关闭
+        // Voting is now closed
         address juror4 = address(0x4);
         vm.prank(juror4);
         vm.expectRevert("Voting closed");

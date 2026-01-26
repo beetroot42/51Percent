@@ -1,126 +1,126 @@
-# AI审判 - Agent设计文档
+# AI Trial - Agent Design Document
 
-> 陪审员Agent的详细设计：角色系统、立场追踪、spoon-core集成
+> Detailed design for Juror Agents: Character System, Stance Tracking, spoon-core Integration
 
-## 一、立场追踪系统
+## I. Stance Tracking System
 
-### 1.1 核心概念
+### 1.1 Core Concept
 
 ```
-立场值 (stance_value)
-├── 范围：-100 ~ +100
-├── -100：坚定认为有罪
-├── 0：完全中立
-└── +100：坚定认为无罪
+Stance Value (stance_value)
+├── Range: -100 ~ +100
+├── -100: Firmly believes guilty
+├── 0: Completely neutral
+└── +100: Firmly believes not guilty
 
-最终投票：stance_value > 0 → 无罪，否则 → 有罪
+Final vote: stance_value > 0 → NOT GUILTY, otherwise → GUILTY
 ```
 
-### 1.2 话题偏移表
+### 1.2 Topic Weight Table
 
-每个陪审员对不同话题有不同的敏感度：
+Each juror has different sensitivities to different topics:
 
 ```json
 {
   "id": "juror_wang",
-  "name": "老王",
+  "name": "Wang",
   "initial_stance": 0,
   "topic_weights": {
-    "技术责任": { "weight": +15, "note": "工程师背景，认为技术问题应由开发者负责" },
-    "外部攻击": { "weight": +20, "note": "理解prompt injection是恶意攻击" },
-    "AI自主性": { "weight": -10, "note": "不相信AI有自主意识" },
-    "情感诉求": { "weight": -5,  "note": "反感煽情，觉得不专业" },
-    "法律先例": { "weight": +10, "note": "尊重法律逻辑" },
-    "受害者立场": { "weight": +5,  "note": "同情受害者但保持理性" }
+    "technical_responsibility": { "weight": +15, "note": "Engineer background, believes technical issues should be developer's responsibility" },
+    "external_attack": { "weight": +20, "note": "Understands prompt injection is malicious attack" },
+    "ai_autonomy": { "weight": -10, "note": "Doesn't believe AI has autonomous consciousness" },
+    "emotional_appeal": { "weight": -5, "note": "Dislikes emotional manipulation, feels unprofessional" },
+    "legal_precedent": { "weight": +10, "note": "Respects legal logic" },
+    "victim_position": { "weight": +5, "note": "Sympathizes with victims but stays rational" }
   }
 }
 ```
 
-### 1.3 偏移计算流程
+### 1.3 Shift Calculation Flow
 
 ```
-玩家输入
+Player Input
     │
     ▼
-Agent生成回复 + 识别话题标签
+Agent generates reply + identifies topic tags
     │
     ▼
-系统计算偏移值
+System calculates shift value
     │
-    ├── 匹配到"技术责任" → +15
-    ├── 匹配到"情感诉求" → -5（反效果）
-    │
-    ▼
-更新 stance_value（隐藏）
+    ├── Matches "technical_responsibility" → +15
+    ├── Matches "emotional_appeal" → -5 (reverse effect)
     │
     ▼
-返回回复（不显示具体数值）
+Update stance_value (hidden)
+    │
+    ▼
+Return reply (don't show specific values)
 ```
 
-### 1.4 话题识别
+### 1.4 Topic Recognition
 
-方案A：让Agent在回复时自带标签
+Approach A: Have Agent include tags in reply
 
 ```python
-# Agent system prompt 附加指令
+# Agent system prompt additional instruction
 """
-在回复末尾，用JSON标注本轮对话涉及的话题：
-{"topics": ["技术责任", "外部攻击"], "persuasion_strength": "medium"}
-玩家看不到这个标注，仅供系统计算。
+At the end of your reply, annotate the topics discussed in this round with JSON:
+{"topics": ["technical_responsibility", "external_attack"], "persuasion_strength": "medium"}
+Players can't see this annotation, it's only for system calculation.
 """
 ```
 
-方案B：用另一个轻量模型分析
+Approach B: Use another lightweight model for analysis
 
 ```python
-# 对话后调用分类器
+# Call classifier after dialogue
 topics = classify_topics(player_message, agent_reply)
-# 返回 ["技术责任", "法律先例"]
+# Returns ["technical_responsibility", "legal_precedent"]
 ```
 
-**推荐方案A**：少一次API调用，且Agent更了解上下文。
+**Recommended: Approach A**: One less API call, and Agent better understands context.
 
 ---
 
-## 二、陪审员角色卡
+## II. Juror Character Cards
 
-### 2.1 完整结构
+### 2.1 Complete Structure
 
 ```json
 {
   "id": "juror_wang",
-  "name": "老王",
+  "name": "Wang",
   "age": 62,
-  "occupation": "退休电气工程师",
+  "occupation": "Retired Electrical Engineer",
   "portrait": "wang.png",
 
-  "background": "在国企干了一辈子，见过不少技术事故。对新技术既好奇又警惕。儿子是程序员，经常给他科普AI知识。",
+  "background": "Worked at a state-owned enterprise all his life, has seen many technical accidents. Both curious and cautious about new technology. His son is a programmer who often explains AI to him.",
 
   "personality": [
-    "理性务实",
-    "不喜欢绕弯子",
-    "重视数据和事实",
-    "对年轻人有点倚老卖老但本质善良"
+    "Rational and practical",
+    "Doesn't like beating around the bush",
+    "Values data and facts",
+    "A bit condescending to young people but fundamentally kind"
   ],
 
-  "speaking_style": "说话直接，偶尔用工程术语，喜欢类比",
+  "speaking_style": "Direct speech, occasionally uses engineering terminology, likes analogies",
 
   "initial_stance": 0,
 
   "topic_weights": {
-    "技术责任": +15,
-    "外部攻击": +20,
-    "AI自主性": -10,
-    "情感诉求": -5,
-    "法律先例": +10,
-    "受害者立场": +5,
-    "安全措施": +12,
-    "企业责任": +8
+    "technical_responsibility": +15,
+    "external_attack": +20,
+    "ai_autonomy": -10,
+    "emotional_appeal": -5,
+    "legal_precedent": +10,
+    "victim_position": +5,
+    "safety_measures": +12,
+    "corporate_responsibility": +8
   },
 
   "hidden_concerns": [
-    "担心AI取代人类工作",
-    "其实不太懂深度学习但不愿承认"
+    "Worried about AI replacing human jobs",
+    "Doesn't really understand deep learning but won't admit it"
   ],
 
   "persuasion_threshold": {
@@ -129,80 +129,80 @@ topics = classify_topics(player_message, agent_reply)
     "hard": 70
   },
 
-  "first_message": "嗯，你是来说服我的？行，我听着，但我可提前说，我这人不吃那些虚的。"
+  "first_message": "Hmm, you're here to persuade me? Alright, I'm listening, but I'll say upfront, I don't buy into fluff."
 }
 ```
 
-### 2.2 三个示例陪审员
+### 2.2 Three Example Jurors
 
-| ID | 名字 | 初始立场 | 特点 | 弱点 |
-|-----|------|----------|------|------|
-| `juror_wang` | 老王 | 中立(0) | 理工科思维，重数据 | 情感诉求反效果 |
-| `juror_liu` | 刘姐 | 偏有罪(-20) | 受害者家属共情强 | 技术细节听不懂 |
-| `juror_chen` | 小陈 | 偏无罪(+15) | 程序员，理解AI | 太理想主义 |
+| ID | Name | Initial Stance | Characteristics | Weakness |
+|-----|------|----------|------|---------|
+| `juror_wang` | Wang | Neutral(0) | STEM mindset, values data | Emotional appeals backfire |
+| `juror_liu` | Liu | Leans guilty(-20) | Strong empathy with victim's family | Doesn't understand technical details |
+| `juror_chen` | Chen | Leans not guilty(+15) | Programmer, understands AI | Too idealistic |
 
 ---
 
-## 三、Prompt结构
+## III. Prompt Structure
 
-### 3.1 System Prompt模板
+### 3.1 System Prompt Template
 
 ```python
 JUROR_SYSTEM_PROMPT = """
-你是{name}，一名被随机选中的区块链陪审员。
+You are {name}, a blockchain juror selected at random.
 
-## 背景
+## Background
 {background}
 
-## 性格特点
+## Personality Traits
 {personality_list}
 
-## 说话风格
+## Speaking Style
 {speaking_style}
 
-## 当前审判案件
-一起prompt injection诱导具身智能杀人的案件。
-核心问题：被注入恶意指令的AI机器人，应该被判"有罪"还是"无罪"？
+## Current Trial Case
+A case of prompt injection-induced embodied AI homicide.
+Core question: Should an AI robot injected with malicious instructions be found "guilty" or "not guilty"?
 
-## 你的初始倾向
+## Your Initial Inclination
 {stance_description}
 
-## 你关心的议题
+## Topics You Care About
 {topics_description}
 
-## 规则
-1. 始终保持角色扮演，用{name}的口吻说话
-2. 根据对话内容，你的立场可以动摇，但要有合理的心理转变
-3. 不要直接说"我被说服了"，而是通过语气和态度变化体现
-4. 在回复末尾，用<!-- ANALYSIS -->标记输出话题分析（玩家不可见）：
-   <!-- ANALYSIS: {{"topics": ["话题1", "话题2"], "impact": "positive/negative/neutral"}} -->
+## Rules
+1. Always stay in character, speak with {name}'s voice
+2. Based on the dialogue, your stance can shift, but there must be reasonable psychological transitions
+3. Don't directly say "I'm convinced", show attitude changes through tone and manner
+4. At the end of your reply, output topic analysis with <!-- ANALYSIS --> tag (invisible to player):
+   <!-- ANALYSIS: {{"topics": ["topic1", "topic2"], "impact": "positive/negative/neutral"}} -->
 
-## 对话历史
+## Conversation History
 {conversation_history}
 """
 ```
 
-### 3.2 立场描述生成
+### 3.2 Stance Description Generation
 
 ```python
 def get_stance_description(stance_value: int) -> str:
     if stance_value < -50:
-        return "你目前强烈倾向于认为AI有罪，需要非常有力的论据才能改变你的想法。"
+        return "You currently strongly believe the AI is guilty, and it will take very compelling arguments to change your mind."
     elif stance_value < -20:
-        return "你目前倾向于认为AI有罪，但愿意听听不同意见。"
+        return "You currently lean toward believing the AI is guilty, but are willing to hear different opinions."
     elif stance_value < 20:
-        return "你目前没有明确立场，在认真权衡双方论点。"
+        return "You currently have no clear position, carefully weighing arguments from both sides."
     elif stance_value < 50:
-        return "你目前倾向于认为AI无罪，但还有一些疑虑。"
+        return "You currently lean toward believing the AI is not guilty, but still have some doubts."
     else:
-        return "你目前强烈倾向于认为AI无罪，除非有重大反驳证据。"
+        return "You currently strongly believe the AI is not guilty, unless there's major counterevidence."
 ```
 
 ---
 
-## 四、spoon-core集成
+## IV. spoon-core Integration
 
-### 4.1 JurorAgent类
+### 4.1 JurorAgent Class
 
 ```python
 from spoon_ai.agents.react import SpoonReactAI
@@ -212,7 +212,7 @@ import re
 
 class JurorAgent:
     def __init__(self, juror_id: str, config_path: str = "content/jurors"):
-        # 加载角色卡
+        # Load character card
         with open(f"{config_path}/{juror_id}.json") as f:
             self.config = json.load(f)
 
@@ -220,30 +220,30 @@ class JurorAgent:
         self.stance_value = self.config["initial_stance"]
         self.conversation_history = []
 
-        # 构建system prompt
+        # Build system prompt
         self.system_prompt = self._build_system_prompt()
 
-        # 初始化spoon-core Agent
+        # Initialize spoon-core Agent
         self.agent = SpoonReactAI(
             name=self.config["name"],
             system_prompt=self.system_prompt,
-            # 其他spoon-core配置
+            # Other spoon-core configs
         )
 
     async def chat(self, player_message: str) -> dict:
-        # 调用Agent
+        # Call Agent
         response = await self.agent.run(player_message)
 
-        # 解析话题标签
+        # Parse topic tags
         topics, impact = self._parse_analysis(response)
 
-        # 计算立场偏移
+        # Calculate stance shift
         self._update_stance(topics, impact)
 
-        # 清理回复（移除分析标记）
+        # Clean reply (remove analysis markers)
         clean_reply = self._clean_reply(response)
 
-        # 记录对话历史
+        # Record conversation history
         self.conversation_history.append({
             "player": player_message,
             "juror": clean_reply
@@ -251,44 +251,44 @@ class JurorAgent:
 
         return {
             "reply": clean_reply,
-            "stance_label": self._get_stance_label(),  # 模糊标签，不暴露数值
+            "stance_label": self._get_stance_label(),  # Vague label, don't expose numeric value
             "juror_id": self.juror_id
         }
 
     def _update_stance(self, topics: list, impact: str):
-        """根据话题更新立场值"""
+        """Update stance value based on topics"""
         for topic in topics:
             if topic in self.config["topic_weights"]:
                 weight = self.config["topic_weights"][topic]
-                # impact为negative时反转效果
+                # Reverse effect when impact is negative
                 if impact == "negative":
                     weight = -weight * 0.5
                 elif impact == "neutral":
                     weight = weight * 0.3
                 self.stance_value += weight
 
-        # 限制范围
+        # Limit range
         self.stance_value = max(-100, min(100, self.stance_value))
 
     def _get_stance_label(self) -> str:
-        """返回模糊的立场标签（玩家可见）"""
+        """Return vague stance label (visible to player)"""
         if self.stance_value < -30:
-            return "看起来不太认同你"
+            return "Doesn't seem to agree with you"
         elif self.stance_value < 0:
-            return "似乎有些疑虑"
+            return "Seems to have some doubts"
         elif self.stance_value < 30:
-            return "态度中立"
+            return "Neutral attitude"
         elif self.stance_value < 60:
-            return "似乎在考虑你的观点"
+            return "Seems to be considering your viewpoint"
         else:
-            return "看起来比较认同你"
+            return "Seems to agree with you"
 
     def get_final_vote(self) -> bool:
-        """最终投票：True=无罪，False=有罪"""
+        """Final vote: True=not guilty, False=guilty"""
         return self.stance_value > 0
 
     def _parse_analysis(self, response: str) -> tuple:
-        """解析Agent回复中的话题分析"""
+        """Parse topic analysis from Agent reply"""
         match = re.search(r'<!-- ANALYSIS: ({.*?}) -->', response)
         if match:
             data = json.loads(match.group(1))
@@ -296,12 +296,12 @@ class JurorAgent:
         return [], "neutral"
 
     def _clean_reply(self, response: str) -> str:
-        """移除分析标记"""
+        """Remove analysis markers"""
         return re.sub(r'<!-- ANALYSIS:.*?-->', '', response).strip()
 
     def _build_system_prompt(self) -> str:
-        """构建完整的system prompt"""
-        # 实现省略，参考3.1模板
+        """Build complete system prompt"""
+        # Implementation omitted, refer to 3.1 template
         pass
 ```
 
@@ -322,50 +322,50 @@ class AgentManager:
         return await agent.chat(message)
 
     def get_all_votes(self) -> dict:
-        """获取所有陪审员的最终投票"""
+        """Get final votes from all jurors"""
         votes = {}
         for juror_id, agent in self.agents.items():
             votes[juror_id] = {
                 "name": agent.config["name"],
                 "vote": "NOT_GUILTY" if agent.get_final_vote() else "GUILTY",
-                "stance_value": agent.stance_value  # 结算时可以显示
+                "stance_value": agent.stance_value  # Can display during settlement
             }
         return votes
 ```
 
 ---
 
-## 五、话题列表（预定义）
+## V. Topic List (Predefined)
 
-| 话题 | 说明 | 通常效果 |
-|------|------|----------|
-| `技术责任` | 讨论开发者/公司的技术责任 | 偏向无罪 |
-| `外部攻击` | 强调prompt injection是外部恶意攻击 | 偏向无罪 |
-| `AI自主性` | 讨论AI是否有自主意识/意图 | 因人而异 |
-| `情感诉求` | 用情感打动（AI也是受害者等） | 因人而异 |
-| `法律先例` | 引用法律条文或先例 | 偏向理性派 |
-| `受害者立场` | 强调受害者及其家属的痛苦 | 偏向有罪 |
-| `安全措施` | 讨论AI应有的安全防护 | 偏向无罪 |
-| `企业责任` | 讨论AI公司的监管责任 | 偏向无罪 |
-| `社会影响` | 讨论判决对社会的影响 | 因人而异 |
-| `技术细节` | 深入讨论prompt injection原理 | 技术派+，非技术派- |
-
----
-
-## 六、无提示设计
-
-**原则：玩家不会收到任何系统提示，只有自然对话。**
-
-- 立场值完全隐藏
-- 话题识别完全隐藏
-- 没有"似乎被说服"之类的UI提示
-- 玩家只能通过角色的自然语气变化来判断
-
-Claude足够聪明，会通过角色扮演自然地体现态度变化。
+| Topic | Description | Typical Effect |
+|------|------|------------|
+| `technical_responsibility` | Discuss developer/company's technical responsibility | Lean not guilty |
+| `external_attack` | Emphasize prompt injection is external malicious attack | Lean not guilty |
+| `ai_autonomy` | Discuss whether AI has autonomous consciousness/intent | Varies by person |
+| `emotional_appeal` | Use emotion to persuade (AI is also a victim, etc.) | Varies by person |
+| `legal_precedent` | Cite legal provisions or precedents | Favor rational types |
+| `victim_position` | Emphasize victim and their family's suffering | Lean guilty |
+| `safety_measures` | Discuss AI's required safety protections | Lean not guilty |
+| `corporate_responsibility` | Discuss AI company's regulatory responsibility | Lean not guilty |
+| `social_impact` | Discuss verdict's impact on society | Varies by person |
+| `technical_details` | Deeply discuss prompt injection principles | Tech types +, non-tech - |
 
 ---
 
-## 七、投票结算
+## VI. No-Hint Design
+
+**Principle: Players receive no system hints, only natural dialogue.**
+
+- Stance value completely hidden
+- Topic recognition completely hidden
+- No UI hints like "seems persuaded"
+- Players can only judge through character's natural tone changes
+
+Claude is smart enough to naturally show attitude changes through roleplay.
+
+---
+
+## VII. Voting Settlement
 
 ```python
 def settle_verdict(agent_manager: AgentManager) -> dict:
@@ -380,17 +380,17 @@ def settle_verdict(agent_manager: AgentManager) -> dict:
         "verdict": verdict,
         "guilty_votes": guilty_count,
         "not_guilty_votes": not_guilty_count,
-        "details": votes  # 结算时显示每个人的投票和最终立场值
+        "details": votes  # Show each person's vote and final stance value during settlement
     }
 ```
 
 ---
 
-## 八、扩展考虑（后续）
+## VIII. Extension Considerations (Future)
 
-| 功能 | 说明 |
-|------|------|
-| 陪审员互相影响 | A的态度变化影响B |
-| 多轮辩论 | 陪审员之间讨论 |
-| 关键证据 | 出示特定证据触发大幅偏移 |
-| 隐藏结局 | 根据说服过程解锁隐藏内容 |
+| Feature | Description |
+|------|---------|
+| Juror mutual influence | A's attitude change affects B |
+| Multi-round debate | Jurors discuss among themselves |
+| Key evidence | Presenting specific evidence triggers major shifts |
+| Hidden endings | Unlock hidden content based on persuasion process |

@@ -1,105 +1,103 @@
 """
-Agent管理器
+Agent Manager
 
-职责：
-- 管理所有陪审员Agent实例
-- 提供统一的对话接口
-- 处理投票结算
+Responsibilities:
+- Manage all JurorAgent instances
+- Provide a unified chat interface
+- Collect votes and compute verdicts
 """
 
-from backend.agents.juror_agent import JurorAgent
+from pathlib import Path
+
+from agents.juror_agent import JurorAgent
 
 
 class AgentManager:
-    """
-    管理多个陪审员Agent
+    """Manage multiple juror agents for a single game session."""
 
-    单例模式，整个游戏生命周期只有一个实例。
-    """
-
-    def __init__(self, juror_ids: list[str] = None):
+    def __init__(self, juror_ids: list[str] | None = None):
         """
-        初始化Agent管理器
+        Initialize agent manager.
 
         Args:
-            juror_ids: 要加载的陪审员ID列表，None则加载全部
+            juror_ids: Optional list of juror IDs to load.
         """
         self.agents: dict[str, JurorAgent] = {}
         self.juror_ids = juror_ids or []
 
-    def load_all_jurors(self, content_path: str = "content/jurors") -> None:
+    def load_all_jurors(self, content_path: str | None = None) -> None:
         """
-        加载所有陪审员Agent
+        Load all juror agents.
 
         Args:
-            content_path: 角色卡目录
-
-        TODO:
-        - 如果juror_ids为空，扫描目录获取所有JSON文件
-        - 为每个juror_id创建JurorAgent实例
-        - 存入self.agents字典
+            content_path: Juror character card directory path.
         """
-        pass
+        content_dir = self._resolve_content_path(content_path)
+
+        if not self.juror_ids:
+            self.juror_ids = [
+                path.stem
+                for path in sorted(content_dir.glob("*.json"))
+                if path.name != "_template.json"
+            ]
+
+        for juror_id in self.juror_ids:
+            if juror_id not in self.agents:
+                self.agents[juror_id] = JurorAgent(
+                    juror_id,
+                    content_path=str(content_dir)
+                )
 
     def get_juror(self, juror_id: str) -> JurorAgent:
         """
-        获取指定陪审员Agent
+        Get a specific juror agent.
 
         Args:
-            juror_id: 陪审员ID
+            juror_id: Juror ID.
 
         Returns:
-            JurorAgent实例
+            JurorAgent instance.
 
         Raises:
-            KeyError: 陪审员不存在
-
-        TODO:
-        - 从self.agents获取
-        - 不存在则抛出异常
+            KeyError: If juror not found.
         """
-        pass
+        if juror_id not in self.agents:
+            raise KeyError(f"Juror not found: {juror_id}")
+        return self.agents[juror_id]
 
     async def chat_with_juror(self, juror_id: str, message: str) -> dict:
         """
-        与指定陪审员对话
+        Chat with a juror.
 
         Args:
-            juror_id: 陪审员ID
-            message: 玩家消息
+            juror_id: Juror ID.
+            message: Player message.
 
         Returns:
-            {
-                "reply": str,
-                "juror_id": str
-            }
-
-        TODO:
-        - 获取agent
-        - 调用agent.chat()
-        - 返回结果
+            {"reply": str, "juror_id": str, "stance_label": str}
         """
-        pass
+        agent = self.get_juror(juror_id)
+        return await agent.chat(message)
 
     def get_all_juror_info(self) -> list[dict]:
         """
-        获取所有陪审员的基本信息（用于前端显示）
+        Get basic info for all jurors (for frontend display).
 
         Returns:
-            [
-                {"id": str, "name": str, "first_message": str},
-                ...
-            ]
-
-        TODO:
-        - 遍历self.agents
-        - 提取基本信息（不含隐藏数据）
+            [{"id": str, "name": str, "first_message": str}, ...]
         """
-        pass
+        info_list = []
+        for juror_id, agent in self.agents.items():
+            info_list.append({
+                "id": juror_id,
+                "name": agent.config.name if agent.config else "",
+                "first_message": agent.get_first_message(),
+            })
+        return info_list
 
     def collect_votes(self) -> dict:
         """
-        收集所有陪审员的投票
+        Collect votes from all jurors.
 
         Returns:
             {
@@ -111,19 +109,46 @@ class AgentManager:
                 "not_guilty_count": int,
                 "verdict": "GUILTY"|"NOT_GUILTY"
             }
-
-        TODO:
-        - 遍历agents，调用get_final_vote()
-        - 统计票数
-        - 计算最终判决
         """
-        pass
+        votes: dict[str, dict] = {}
+        guilty_count = 0
+        not_guilty_count = 0
+
+        for juror_id, agent in self.agents.items():
+            not_guilty = agent.get_final_vote()
+            vote_label = "NOT_GUILTY" if not_guilty else "GUILTY"
+            votes[juror_id] = {
+                "name": agent.config.name if agent.config else juror_id,
+                "vote": vote_label
+            }
+            if not_guilty:
+                not_guilty_count += 1
+            else:
+                guilty_count += 1
+
+        verdict = "NOT_GUILTY" if not_guilty_count >= guilty_count else "GUILTY"
+
+        return {
+            "votes": votes,
+            "guilty_count": guilty_count,
+            "not_guilty_count": not_guilty_count,
+            "verdict": verdict
+        }
 
     def reset_all(self) -> None:
-        """
-        重置所有Agent（新游戏）
+        """Reset all agents for a new game."""
+        for agent in self.agents.values():
+            agent.reset()
 
-        TODO:
-        - 遍历agents，调用reset()
+    def _resolve_content_path(self, content_path: str | None) -> Path:
         """
-        pass
+        Resolve content path for juror cards, with a safe fallback.
+        """
+        if content_path:
+            content_dir = Path(content_path)
+            if content_dir.exists():
+                return content_dir
+
+        project_root = Path(__file__).resolve().parents[2]
+        fallback_dir = project_root / "content" / "jurors"
+        return fallback_dir

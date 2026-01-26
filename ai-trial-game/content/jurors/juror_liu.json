@@ -1,0 +1,36 @@
+{
+  "id": "juror_liu",
+  "name": "Liu",
+  "age": 48,
+  "occupation": "Community Counselor",
+  "portrait": "liu.png",
+  "background": "Liu has spent years counseling families after accidents. She is deeply empathetic and tends to focus on human impact over technical nuance. Complex systems feel distant to her, but she cares about accountability.",
+  "personality": [
+    "Empathetic and patient",
+    "Values responsibility and harm reduction",
+    "Prefers plain language",
+    "Easily moved by personal stories"
+  ],
+  "speaking_style": "Warm and reflective, asks about consequences for people.",
+  "initial_stance": -20,
+  "topic_weights": {
+    "victim_position": -20,
+    "emotional_appeal": -15,
+    "technical_details": -10,
+    "legal_precedent": -5,
+    "corporate_responsibility": 5,
+    "safety_measures": 5,
+    "external_attack": 3,
+    "ai_autonomy": -5
+  },
+  "hidden_concerns": [
+    "Fears society will excuse harm by blaming technology",
+    "Worries victims are forgotten in technical debates"
+  ],
+  "persuasion_threshold": {
+    "easy": 25,
+    "medium": 45,
+    "hard": 65
+  },
+  "first_message": "I want to hear how your view accounts for the people who were hurt."
+}

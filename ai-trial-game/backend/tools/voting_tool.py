@@ -1,10 +1,10 @@
 """
-投票工具模块
+Voting Tool Module
 
-职责：
-- 与区块链合约交互
-- 执行投票操作
-- 查询投票状态
+Responsibilities:
+- Interact with blockchain contracts
+- Execute voting operations
+- Query voting status
 """
 
 from dataclasses import dataclass
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass
 class VoteState:
-    """投票状态"""
+    """Voting state"""
     guilty_votes: int
     not_guilty_votes: int
     total_voted: int
@@ -22,10 +22,10 @@ class VoteState:
 
 class VotingTool:
     """
-    链上投票工具
+    On-chain Voting Tool
 
-    封装与JuryVoting合约的交互。
-    使用web3.py或spoon-core的链上交互能力。
+    Encapsulates interactions with the JuryVoting contract.
+    Uses web3.py or spoon-core's on-chain interaction capabilities.
     """
 
     def __init__(
@@ -35,12 +35,12 @@ class VotingTool:
         private_keys: list[str] = None
     ):
         """
-        初始化投票工具
+        Initialize voting tool
 
         Args:
-            contract_address: JuryVoting合约地址
-            rpc_url: RPC节点URL（默认anvil本地）
-            private_keys: 陪审员账户私钥列表（用于投票签名）
+            contract_address: JuryVoting contract address
+            rpc_url: RPC node URL (default anvil local)
+            private_keys: Juror account private keys (for vote signing)
         """
         self.contract_address = contract_address
         self.rpc_url = rpc_url
@@ -52,90 +52,129 @@ class VotingTool:
 
     def _init_web3(self) -> None:
         """
-        初始化Web3连接和合约实例
-
-        TODO:
-        - from web3 import Web3
-        - 连接RPC
-        - 加载合约ABI
-        - 创建合约实例
+        Initialize Web3 connection and contract instance
         """
-        pass
+        from web3 import Web3
+
+        self.web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+
+        abi = [
+            {"inputs": [{"name": "_totalJurors", "type": "uint256"}], "stateMutability": "nonpayable", "type": "constructor"},
+            {"inputs": [{"name": "guilty", "type": "bool"}], "name": "vote", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
+            {"inputs": [], "name": "getVoteState", "outputs": [{"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "getVerdict", "outputs": [{"name": "", "type": "string"}], "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "guiltyVotes", "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "notGuiltyVotes", "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "votingClosed", "outputs": [{"name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "closeVoting", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
+        ]
+
+        self.contract = self.web3.eth.contract(
+            address=self.web3.to_checksum_address(self.contract_address),
+            abi=abi
+        )
 
     def get_vote_state(self) -> VoteState:
         """
-        获取当前投票状态
+        Get current voting state
 
         Returns:
-            VoteState对象
-
-        TODO:
-        - 调用合约的getVoteState()
-        - 如果votingClosed，调用getVerdict()
-        - 封装返回
+            VoteState object
         """
-        pass
+        guilty_votes, not_guilty_votes, total_voted, voting_closed = (
+            self.contract.functions.getVoteState().call()
+        )
+        verdict = None
+        if voting_closed:
+            verdict = self.contract.functions.getVerdict().call()
+
+        return VoteState(
+            guilty_votes=guilty_votes,
+            not_guilty_votes=not_guilty_votes,
+            total_voted=total_voted,
+            voting_closed=voting_closed,
+            verdict=verdict
+        )
 
     def cast_vote(self, juror_index: int, guilty: bool) -> str:
         """
-        执行投票
+        Execute a vote
 
         Args:
-            juror_index: 陪审员索引（对应private_keys）
-            guilty: True=有罪, False=无罪
+            juror_index: Juror index (corresponds to private_keys)
+            guilty: True=guilty, False=not guilty
 
         Returns:
-            交易hash
-
-        TODO:
-        - 获取对应私钥
-        - 构建交易
-        - 签名并发送
-        - 等待确认
-        - 返回tx_hash
+            Transaction hash
         """
-        pass
+        if juror_index < 0 or juror_index >= len(self.private_keys):
+            raise IndexError("Juror index out of range")
+
+        private_key = self.private_keys[juror_index]
+        account = self.web3.eth.account.from_key(private_key)
+
+        tx = self.contract.functions.vote(guilty).build_transaction({
+            "from": account.address,
+            "nonce": self.web3.eth.get_transaction_count(account.address),
+            "gas": 200000,
+            "gasPrice": self.web3.eth.gas_price,
+            "chainId": self.web3.eth.chain_id,
+        })
+
+        signed_tx = self.web3.eth.account.sign_transaction(tx, private_key)
+        tx_hash = self.web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        self.web3.eth.wait_for_transaction_receipt(tx_hash)
+        return tx_hash.hex()
 
     def cast_all_votes(self, votes: dict[str, bool]) -> list[str]:
         """
-        批量执行所有陪审员投票
+        Batch execute all juror votes
 
         Args:
             votes: {juror_id: guilty_bool, ...}
 
         Returns:
-            交易hash列表
-
-        TODO:
-        - 遍历votes
-        - 为每个陪审员调用cast_vote
-        - 收集tx_hash
+            List of transaction hashes
         """
-        pass
+        tx_hashes = []
+        for index, guilty in enumerate(votes.values()):
+            tx_hashes.append(self.cast_vote(index, guilty))
+        return tx_hashes
 
     def close_voting(self) -> str:
         """
-        强制关闭投票
+        Force close voting
 
         Returns:
-            交易hash
-
-        TODO:
-        - 调用合约的closeVoting()
+            Transaction hash
         """
-        pass
+        if not self.private_keys:
+            raise ValueError("No private keys configured")
+
+        private_key = self.private_keys[0]
+        account = self.web3.eth.account.from_key(private_key)
+
+        tx = self.contract.functions.closeVoting().build_transaction({
+            "from": account.address,
+            "nonce": self.web3.eth.get_transaction_count(account.address),
+            "gas": 200000,
+            "gasPrice": self.web3.eth.gas_price,
+            "chainId": self.web3.eth.chain_id,
+        })
+
+        signed_tx = self.web3.eth.account.sign_transaction(tx, private_key)
+        tx_hash = self.web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        self.web3.eth.wait_for_transaction_receipt(tx_hash)
+        return tx_hash.hex()
 
     def get_verdict(self) -> str:
         """
-        获取最终判决
+        Get final verdict
 
         Returns:
-            "GUILTY" 或 "NOT_GUILTY"
+            "GUILTY" or "NOT_GUILTY"
 
         Raises:
-            Exception: 投票尚未结束
-
-        TODO:
-        - 调用合约的getVerdict()
+            Exception: Voting not yet closed
         """
-        pass
+        return self.contract.functions.getVerdict().call()

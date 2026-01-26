@@ -1,89 +1,111 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-/// @title JuryVoting - 区块链陪审团投票合约
-/// @notice 用于AI审判游戏的陪审员投票系统
+/// @title JuryVoting - Blockchain Jury Voting Contract
+/// @notice Jury voting system for the AI Trial game
 contract JuryVoting {
-    // ============ 状态变量 ============
+    // ============ State Variables ============
 
-    /// @notice 陪审员总数
+    /// @notice Total number of jurors
     uint public totalJurors;
 
-    /// @notice 有罪票数
+    /// @notice Number of guilty votes
     uint public guiltyVotes;
 
-    /// @notice 无罪票数
+    /// @notice Number of not guilty votes
     uint public notGuiltyVotes;
 
-    /// @notice 投票是否结束
+    /// @notice Whether voting has ended
     bool public votingClosed;
 
-    /// @notice 记录地址是否已投票
+    /// @notice Record whether an address has voted
     mapping(address => bool) public hasVoted;
 
-    /// @notice 记录地址的投票选择 (true=有罪)
+    /// @notice Record the vote choice of an address (true=guilty)
     mapping(address => bool) public votedGuilty;
 
-    // ============ 事件 ============
+    // ============ Events ============
 
-    /// @notice 投票事件
+    /// @notice Vote event
     event Voted(address indexed juror, bool guilty);
 
-    /// @notice 投票结束事件
+    /// @notice Voting closed event
     event VotingClosed(string verdict, uint guiltyVotes, uint notGuiltyVotes);
 
-    // ============ 构造函数 ============
+    // ============ Constructor ============
 
-    /// @notice 初始化合约
-    /// @param _totalJurors 陪审员总数
+    /// @notice Initialize the contract
+    /// @param _totalJurors Total number of jurors
     constructor(uint _totalJurors) {
-        // TODO: 实现构造函数
-        // - 设置totalJurors
-        // - 验证_totalJurors > 0
+        require(_totalJurors > 0, "Must have at least 1 juror");
+        totalJurors = _totalJurors;
     }
 
-    // ============ 外部函数 ============
+    // ============ External Functions ============
 
-    /// @notice 陪审员投票
-    /// @param guilty true表示投有罪，false表示投无罪
+    /// @notice Juror votes
+    /// @param guilty true for guilty, false for not guilty
     function vote(bool guilty) external {
-        // TODO: 实现投票逻辑
-        // - 检查是否已投票 (require !hasVoted[msg.sender])
-        // - 检查投票是否已结束 (require !votingClosed)
-        // - 记录投票
-        // - 更新票数
-        // - 检查是否所有人都投票了，如果是则关闭投票
-        // - 触发Voted事件
+        require(!hasVoted[msg.sender], "Already voted");
+        require(!votingClosed, "Voting closed");
+
+        hasVoted[msg.sender] = true;
+        votedGuilty[msg.sender] = guilty;
+
+        if (guilty) {
+            guiltyVotes += 1;
+        } else {
+            notGuiltyVotes += 1;
+        }
+
+        emit Voted(msg.sender, guilty);
+
+        if (guiltyVotes + notGuiltyVotes >= totalJurors) {
+            votingClosed = true;
+            string memory verdict = guiltyVotes > notGuiltyVotes
+                ? "GUILTY"
+                : "NOT_GUILTY";
+            emit VotingClosed(verdict, guiltyVotes, notGuiltyVotes);
+        }
     }
 
-    /// @notice 获取当前投票状态
-    /// @return _guiltyVotes 有罪票数
-    /// @return _notGuiltyVotes 无罪票数
-    /// @return _totalVoted 已投票人数
-    /// @return _closed 投票是否结束
+    /// @notice Get current voting state
+    /// @return _guiltyVotes Number of guilty votes
+    /// @return _notGuiltyVotes Number of not guilty votes
+    /// @return _totalVoted Number of votes cast
+    /// @return _closed Whether voting is closed
     function getVoteState() external view returns (
         uint _guiltyVotes,
         uint _notGuiltyVotes,
         uint _totalVoted,
         bool _closed
     ) {
-        // TODO: 实现状态查询
+        _guiltyVotes = guiltyVotes;
+        _notGuiltyVotes = notGuiltyVotes;
+        _totalVoted = guiltyVotes + notGuiltyVotes;
+        _closed = votingClosed;
     }
 
-    /// @notice 获取最终判决
-    /// @return verdict "GUILTY" 或 "NOT_GUILTY"
+    /// @notice Get final verdict
+    /// @return verdict "GUILTY" or "NOT_GUILTY"
     function getVerdict() external view returns (string memory verdict) {
-        // TODO: 实现判决查询
-        // - 检查投票是否已结束 (require votingClosed)
-        // - 比较guiltyVotes和notGuiltyVotes
-        // - 返回结果
+        require(votingClosed, "Voting not closed");
+        if (guiltyVotes > notGuiltyVotes) {
+            return "GUILTY";
+        }
+        return "NOT_GUILTY";
     }
 
-    /// @notice 强制结束投票（管理员功能）
+    /// @notice Force close voting (admin function)
     function closeVoting() external {
-        // TODO: 实现强制结束
-        // - 可选：添加onlyOwner修饰符
-        // - 设置votingClosed = true
-        // - 触发VotingClosed事件
+        if (votingClosed) {
+            return;
+        }
+
+        votingClosed = true;
+        string memory verdict = guiltyVotes > notGuiltyVotes
+            ? "GUILTY"
+            : "NOT_GUILTY";
+        emit VotingClosed(verdict, guiltyVotes, notGuiltyVotes);
     }
 }

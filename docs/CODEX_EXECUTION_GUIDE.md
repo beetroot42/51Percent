@@ -1,23 +1,23 @@
-# Codex执行方案
+# Codex Execution Plan
 
-> 按顺序执行，每步完成后必须通过测试再进入下一步
+> Execute in sequence, each step must pass testing before proceeding to the next
 
-## 执行原则
+## Execution Principles
 
-1. **严格按顺序执行** - 不要跳步
-2. **每步必须测试** - 测试通过才能继续
-3. **遇到问题先修复** - 不要带着bug继续
-4. **保持代码简洁** - 不要过度设计
+1. **Strict sequential execution** - Don't skip steps
+2. **Test every step** - Only continue after tests pass
+3. **Fix issues first** - Don't continue with bugs
+4. **Keep code simple** - Don't over-engineer
 
 ---
 
-## 阶段一：智能合约（Day 1上午）
+## Phase 1: Smart Contracts (Day 1 Morning)
 
-### Task 1.1: 实现JuryVoting构造函数
+### Task 1.1: Implement JuryVoting Constructor
 
-**文件**: `contracts/src/JuryVoting.sol`
+**File**: `contracts/src/JuryVoting.sol`
 
-**实现要求**:
+**Implementation Requirements**:
 ```solidity
 constructor(uint _totalJurors) {
     require(_totalJurors > 0, "Must have at least 1 juror");
@@ -25,31 +25,31 @@ constructor(uint _totalJurors) {
 }
 ```
 
-**测试方法**:
+**Testing Method**:
 ```bash
 cd ai-trial-game/contracts
 forge build
 ```
 
-**验收标准**: 编译通过，无错误
+**Acceptance Criteria**: Compiles successfully, no errors
 
 ---
 
-### Task 1.2: 实现vote函数
+### Task 1.2: Implement vote Function
 
-**文件**: `contracts/src/JuryVoting.sol`
+**File**: `contracts/src/JuryVoting.sol`
 
-**实现要求**:
-- 检查是否已投票
-- 检查投票是否已结束
-- 记录投票
-- 更新票数
-- 检查是否应关闭投票
-- 触发事件
+**Implementation Requirements**:
+- Check if already voted
+- Check if voting has closed
+- Record vote
+- Update vote count
+- Check if voting should close
+- Trigger events
 
-**测试**: 创建测试文件
+**Test**: Create test file
 
-**文件**: `contracts/test/JuryVoting.t.sol`
+**File**: `contracts/test/JuryVoting.t.sol`
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -77,7 +77,7 @@ contract JuryVotingTest is Test {
 
     function test_Vote() public {
         vm.prank(juror1);
-        voting.vote(true); // 有罪
+        voting.vote(true); // guilty
 
         assertEq(voting.guiltyVotes(), 1);
         assertEq(voting.hasVoted(juror1), true);
@@ -105,20 +105,20 @@ contract JuryVotingTest is Test {
 }
 ```
 
-**测试命令**:
+**Test Command**:
 ```bash
 forge test -vv
 ```
 
-**验收标准**: 所有4个测试通过
+**Acceptance Criteria**: All 4 tests pass
 
 ---
 
-### Task 1.3: 实现getVoteState和getVerdict
+### Task 1.3: Implement getVoteState and getVerdict
 
-**文件**: `contracts/src/JuryVoting.sol`
+**File**: `contracts/src/JuryVoting.sol`
 
-**测试**: 添加到测试文件
+**Test**: Add to test file
 
 ```solidity
 function test_GetVoteState() public {
@@ -162,53 +162,53 @@ function test_GetVerdict_RevertsIfNotClosed() public {
 }
 ```
 
-**测试命令**:
+**Test Command**:
 ```bash
 forge test -vv
 ```
 
-**验收标准**: 所有8个测试通过
+**Acceptance Criteria**: All 8 tests pass
 
 ---
 
-### Task 1.4: 本地部署测试
+### Task 1.4: Local Deployment Testing
 
-**测试方法**:
+**Testing Method**:
 ```bash
-# 终端1: 启动本地链
+# Terminal 1: Start local chain
 anvil
 
-# 终端2: 部署
+# Terminal 2: Deploy
 export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 forge script script/Deploy.s.sol --broadcast --rpc-url http://127.0.0.1:8545
 ```
 
-**验收标准**:
-- 看到 "JuryVoting deployed at: 0x..."
-- 记录合约地址，后续使用
+**Acceptance Criteria**:
+- See "JuryVoting deployed at: 0x..."
+- Record contract address for later use
 
 ---
 
-## 阶段二：后端基础（Day 1下午）
+## Phase 2: Backend Basics (Day 1 Afternoon)
 
-### Task 2.1: 实现VotingTool._init_web3
+### Task 2.1: Implement VotingTool._init_web3
 
-**文件**: `backend/tools/voting_tool.py`
+**File**: `backend/tools/voting_tool.py`
 
-**前置准备**:
+**Prerequisites**:
 ```bash
 cd ai-trial-game/backend
 pip install -r requirements.txt
 ```
 
-**实现要求**:
+**Implementation Requirements**:
 ```python
 def _init_web3(self) -> None:
     from web3 import Web3
 
     self.web3 = Web3(Web3.HTTPProvider(self.rpc_url))
 
-    # 合约ABI（从forge编译输出获取，这里简化）
+    # Contract ABI (from forge compilation output, simplified here)
     abi = [
         {"inputs": [{"name": "_totalJurors", "type": "uint256"}], "stateMutability": "nonpayable", "type": "constructor"},
         {"inputs": [{"name": "guilty", "type": "bool"}], "name": "vote", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
@@ -225,25 +225,25 @@ def _init_web3(self) -> None:
     )
 ```
 
-**测试**: 创建测试文件
+**Test**: Create test file
 
-**文件**: `backend/tests/test_voting_tool.py`
+**File**: `backend/tests/test_voting_tool.py`
 
 ```python
 """
-VotingTool测试
+VotingTool tests
 
-前置条件: anvil运行中，合约已部署
+Prerequisites: anvil running, contract deployed
 """
 import pytest
 from tools.voting_tool import VotingTool
 
-# 使用实际部署的合约地址
-CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"  # 替换为实际地址
+# Use actual deployed contract address
+CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"  # Replace with actual address
 
 @pytest.fixture
 def voting_tool():
-    # anvil默认私钥
+    # anvil default private keys
     private_keys = [
         "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -252,158 +252,158 @@ def voting_tool():
     return VotingTool(CONTRACT_ADDRESS, private_keys=private_keys)
 
 def test_init(voting_tool):
-    """测试初始化"""
+    """Test initialization"""
     assert voting_tool.web3 is not None
     assert voting_tool.contract is not None
 
 def test_get_vote_state(voting_tool):
-    """测试获取投票状态"""
+    """Test get vote state"""
     state = voting_tool.get_vote_state()
     assert hasattr(state, 'guilty_votes')
     assert hasattr(state, 'not_guilty_votes')
 ```
 
-**测试命令**:
+**Test Command**:
 ```bash
 cd backend
 python -m pytest tests/test_voting_tool.py -v
 ```
 
-**验收标准**: 测试通过
+**Acceptance Criteria**: Tests pass
 
 ---
 
-### Task 2.2: 实现VotingTool完整功能
+### Task 2.2: Implement VotingTool Complete Functionality
 
-**文件**: `backend/tools/voting_tool.py`
+**File**: `backend/tools/voting_tool.py`
 
-**实现**: get_vote_state, cast_vote, get_verdict
+**Implement**: get_vote_state, cast_vote, get_verdict
 
-**测试**: 添加到测试文件
+**Test**: Add to test file
 
 ```python
 def test_cast_vote(voting_tool):
-    """测试投票（注意：会改变链上状态）"""
-    # 这个测试会实际投票，每次运行需要重新部署合约
-    tx_hash = voting_tool.cast_vote(0, True)  # juror 0 投有罪
+    """Test voting (Note: changes on-chain state)"""
+    # This test will actually vote, need to redeploy contract for each run
+    tx_hash = voting_tool.cast_vote(0, True)  # juror 0 votes guilty
     assert tx_hash is not None
     assert tx_hash.startswith("0x")
 ```
 
-**验收标准**: 能成功发送交易并返回hash
+**Acceptance Criteria**: Can successfully send transaction and return hash
 
 ---
 
-### Task 2.3: 实现基础FastAPI端点
+### Task 2.3: Implement Basic FastAPI Endpoints
 
-**文件**: `backend/main.py`
+**File**: `backend/main.py`
 
-**实现**: root, get_game_state (返回mock数据先)
+**Implement**: root, get_game_state (return mock data first)
 
-**测试命令**:
+**Test Command**:
 ```bash
 cd backend
 uvicorn main:app --reload
 
-# 另一个终端
+# Another terminal
 curl http://localhost:8000/
 curl http://localhost:8000/state
 ```
 
-**验收标准**:
-- `/` 返回 `{"status": "ok", "game": "AI审判"}`
-- `/state` 返回游戏状态JSON
+**Acceptance Criteria**:
+- `/` returns `{"status": "ok", "game": "AI Trial"}`
+- `/state` returns game state JSON
 
 ---
 
-## 阶段三：Agent核心（Day 2上午）
+## Phase 3: Agent Core (Day 2 Morning)
 
-### Task 3.1: 实现JurorAgent._load_config
+### Task 3.1: Implement JurorAgent._load_config
 
-**文件**: `backend/agents/juror_agent.py`
+**File**: `backend/agents/juror_agent.py`
 
-**前置**: 创建测试用角色卡
+**Prerequisites**: Create test character card
 
-**文件**: `content/jurors/test_juror.json`
+**File**: `content/jurors/test_juror.json`
 
 ```json
 {
   "id": "test_juror",
-  "name": "测试陪审员",
-  "background": "这是一个测试角色",
-  "personality": ["测试性格"],
-  "speaking_style": "测试风格",
+  "name": "Test Juror",
+  "background": "This is a test character",
+  "personality": ["test personality"],
+  "speaking_style": "test style",
   "initial_stance": 0,
   "topic_weights": {
-    "技术责任": 10,
-    "情感诉求": -5
+    "technical_responsibility": 10,
+    "emotional_appeal": -5
   },
-  "first_message": "你好，我是测试陪审员。"
+  "first_message": "Hello, I am a test juror."
 }
 ```
 
-**测试文件**: `backend/tests/test_juror_agent.py`
+**Test File**: `backend/tests/test_juror_agent.py`
 
 ```python
 import pytest
 from agents.juror_agent import JurorAgent
 
 def test_load_config():
-    """测试加载角色卡"""
+    """Test loading character card"""
     agent = JurorAgent("test_juror", content_path="../content/jurors")
 
     assert agent.config is not None
-    assert agent.config.name == "测试陪审员"
+    assert agent.config.name == "Test Juror"
     assert agent.stance_value == 0
 
 def test_get_first_message():
-    """测试获取开场白"""
+    """Test getting first message"""
     agent = JurorAgent("test_juror", content_path="../content/jurors")
 
     msg = agent.get_first_message()
-    assert msg == "你好，我是测试陪审员。"
+    assert msg == "Hello, I am a test juror."
 ```
 
-**测试命令**:
+**Test Command**:
 ```bash
 python -m pytest tests/test_juror_agent.py::test_load_config -v
 ```
 
-**验收标准**: 测试通过
+**Acceptance Criteria**: Tests pass
 
 ---
 
-### Task 3.2: 实现JurorAgent._build_system_prompt
+### Task 3.2: Implement JurorAgent._build_system_prompt
 
-**文件**: `backend/agents/juror_agent.py`
+**File**: `backend/agents/juror_agent.py`
 
-**测试**:
+**Test**:
 ```python
 def test_build_system_prompt():
-    """测试构建system prompt"""
+    """Test building system prompt"""
     agent = JurorAgent("test_juror", content_path="../content/jurors")
 
     prompt = agent._build_system_prompt()
 
-    assert "测试陪审员" in prompt
-    assert "测试角色" in prompt
-    assert "中立" in prompt or "立场" in prompt
+    assert "Test Juror" in prompt
+    assert "test character" in prompt
+    assert "neutral" in prompt or "stance" in prompt
 ```
 
-**验收标准**: prompt包含角色信息
+**Acceptance Criteria**: prompt contains character information
 
 ---
 
-### Task 3.3: 实现JurorAgent._init_llm和chat
+### Task 3.3: Implement JurorAgent._init_llm and chat
 
-**文件**: `backend/agents/juror_agent.py`
+**File**: `backend/agents/juror_agent.py`
 
-**环境变量**: 创建 `.env` 文件
+**Environment Variables**: Create `.env` file
 ```
 ANTHROPIC_API_KEY=your_api_key_here
 ```
 
-**实现要点**:
+**Implementation Points**:
 ```python
 def _init_llm(self) -> None:
     import anthropic
@@ -416,16 +416,16 @@ def _init_llm(self) -> None:
     )
 
 async def chat(self, player_message: str) -> dict:
-    # 构建messages
+    # Build messages
     messages = []
     for turn in self.conversation_history:
         messages.append({"role": "user", "content": turn.player})
         messages.append({"role": "assistant", "content": turn.juror})
     messages.append({"role": "user", "content": player_message})
 
-    # 调用Claude
+    # Call Claude
     response = self.llm_client.messages.create(
-        model="claude-3-haiku-20240307",  # 用便宜的模型测试
+        model="claude-3-haiku-20240307",  # Use cheaper model for testing
         max_tokens=1024,
         system=self._build_system_prompt(),
         messages=messages
@@ -433,16 +433,16 @@ async def chat(self, player_message: str) -> dict:
 
     reply = response.content[0].text
 
-    # 解析话题
+    # Parse topics
     topics, impact = self._parse_topics(reply)
 
-    # 更新立场
+    # Update stance
     self._update_stance(topics, impact)
 
-    # 清理回复
+    # Clean reply
     clean_reply = self._clean_reply(reply)
 
-    # 记录历史
+    # Record history
     self.conversation_history.append(ConversationTurn(
         player=player_message,
         juror=clean_reply
@@ -454,68 +454,68 @@ async def chat(self, player_message: str) -> dict:
     }
 ```
 
-**测试**:
+**Test**:
 ```python
 import asyncio
 
 def test_chat_integration():
-    """集成测试：实际调用LLM"""
+    """Integration test: actually call LLM"""
     agent = JurorAgent("test_juror", content_path="../content/jurors")
 
-    result = asyncio.run(agent.chat("你好"))
+    result = asyncio.run(agent.chat("Hello"))
 
     assert "reply" in result
     assert len(result["reply"]) > 0
-    print(f"Agent回复: {result['reply']}")
+    print(f"Agent reply: {result['reply']}")
 ```
 
-**测试命令**:
+**Test Command**:
 ```bash
 python -m pytest tests/test_juror_agent.py::test_chat_integration -v -s
 ```
 
-**验收标准**: 能收到LLM回复
+**Acceptance Criteria**: Can receive LLM reply
 
 ---
 
-### Task 3.4: 实现话题解析和立场更新
+### Task 3.4: Implement Topic Parsing and Stance Update
 
-**文件**: `backend/agents/juror_agent.py`
+**File**: `backend/agents/juror_agent.py`
 
-**实现**: _parse_topics, _update_stance, _clean_reply
+**Implement**: _parse_topics, _update_stance, _clean_reply
 
-**测试**:
+**Test**:
 ```python
 def test_update_stance():
-    """测试立场更新"""
+    """Test stance update"""
     agent = JurorAgent("test_juror", content_path="../content/jurors")
 
     initial = agent.stance_value
-    agent._update_stance(["技术责任"], "positive")
+    agent._update_stance(["technical_responsibility"], "positive")
 
-    assert agent.stance_value == initial + 10  # topic_weights["技术责任"] = 10
+    assert agent.stance_value == initial + 10  # topic_weights["technical_responsibility"] = 10
 
 def test_update_stance_negative():
-    """测试负面话题"""
+    """Test negative topic"""
     agent = JurorAgent("test_juror", content_path="../content/jurors")
 
     initial = agent.stance_value
-    agent._update_stance(["情感诉求"], "positive")
+    agent._update_stance(["emotional_appeal"], "positive")
 
-    assert agent.stance_value == initial - 5  # topic_weights["情感诉求"] = -5
+    assert agent.stance_value == initial - 5  # topic_weights["emotional_appeal"] = -5
 ```
 
-**验收标准**: 立场值正确更新
+**Acceptance Criteria**: Stance value updates correctly
 
 ---
 
-## 阶段四：API完整实现（Day 2下午）
+## Phase 4: Complete API Implementation (Day 2 Afternoon)
 
-### Task 4.1: 实现AgentManager
+### Task 4.1: Implement AgentManager
 
-**文件**: `backend/services/agent_manager.py`
+**File**: `backend/services/agent_manager.py`
 
-**测试**:
+**Test**:
 ```python
 def test_agent_manager():
     manager = AgentManager(["test_juror"])
@@ -527,26 +527,26 @@ def test_collect_votes():
     manager = AgentManager(["test_juror"])
     manager.load_all_jurors("../content/jurors")
 
-    # 手动设置立场以测试
+    # Manually set stance for testing
     manager.agents["test_juror"].stance_value = 50
 
     votes = manager.collect_votes()
     assert votes["verdict"] == "NOT_GUILTY"
 ```
 
-**验收标准**: 测试通过
+**Acceptance Criteria**: Tests pass
 
 ---
 
-### Task 4.2: 实现完整API端点
+### Task 4.2: Implement Complete API Endpoints
 
-**文件**: `backend/main.py`
+**File**: `backend/main.py`
 
-**实现所有端点**
+**Implement all endpoints**
 
-**测试**: 创建API测试
+**Test**: Create API tests
 
-**文件**: `backend/tests/test_api.py`
+**File**: `backend/tests/test_api.py`
 
 ```python
 from fastapi.testclient import TestClient
@@ -570,181 +570,181 @@ def test_get_dossier():
 def test_chat():
     response = client.post(
         "/chat/test_juror",
-        json={"message": "你好"}
+        json={"message": "Hello"}
     )
     assert response.status_code == 200
     assert "reply" in response.json()
 ```
 
-**测试命令**:
+**Test Command**:
 ```bash
 python -m pytest tests/test_api.py -v
 ```
 
-**验收标准**: 所有API测试通过
+**Acceptance Criteria**: All API tests pass
 
 ---
 
-## 阶段五：前端实现（Day 3）
+## Phase 5: Frontend Implementation (Day 3)
 
-### Task 5.1: 实现api.js
+### Task 5.1: Implement api.js
 
-**文件**: `frontend/js/api.js`
+**File**: `frontend/js/api.js`
 
-**实现所有API调用函数**
+**Implement all API call functions**
 
-**测试方法**:
-1. 启动后端: `uvicorn main:app --reload`
-2. 打开浏览器控制台
-3. 在 `index.html` 中添加测试代码:
+**Testing Method**:
+1. Start backend: `uvicorn main:app --reload`
+2. Open browser console
+3. Add test code in `index.html`:
 
 ```html
 <script>
 async function testAPI() {
-    console.log("测试 getGameState:", await getGameState());
-    console.log("测试 getJurors:", await getJurors());
-    console.log("测试 getDossier:", await getDossier());
+    console.log("Test getGameState:", await getGameState());
+    console.log("Test getJurors:", await getJurors());
+    console.log("Test getDossier:", await getDossier());
 }
 testAPI();
 </script>
 ```
 
-**验收标准**: 控制台显示正确的API响应
+**Acceptance Criteria**: Console shows correct API responses
 
 ---
 
-### Task 5.2: 实现dialogue.js
+### Task 5.2: Implement dialogue.js
 
-**文件**: `frontend/js/dialogue.js`
+**File**: `frontend/js/dialogue.js`
 
-**测试**:
+**Test**:
 ```javascript
-// 在控制台测试
+// Test in console
 await loadWitness("test_witness");
 console.log(getCurrentNode());
 selectOption("node_a");
 console.log(getCurrentNode());
 ```
 
-**验收标准**: 对话树能正确导航
+**Acceptance Criteria**: Dialogue tree can navigate correctly
 
 ---
 
-### Task 5.3: 实现game.js核心流程
+### Task 5.3: Implement game.js Core Flow
 
-**文件**: `frontend/js/game.js`
+**File**: `frontend/js/game.js`
 
-**分步实现**:
+**Step-by-step Implementation**:
 
 1. **initGame + enterInvestigation**
-   - 验收: 页面加载后显示调查阶段
+   - Acceptance: Page shows investigation phase after loading
 
 2. **showDossier + showEvidenceList**
-   - 验收: 能看到卷宗和证据
+   - Acceptance: Can view dossier and evidence
 
 3. **startWitnessDialogue + renderDialogueNode**
-   - 验收: 能与当事人对话
+   - Acceptance: Can dialogue with witnesses
 
 4. **enterPersuasion + selectJuror**
-   - 验收: 能切换到说服阶段，选择陪审员
+   - Acceptance: Can switch to persuasion phase, select jurors
 
 5. **sendMessageToJuror**
-   - 验收: 能发送消息并收到回复
+   - Acceptance: Can send messages and receive replies
 
 6. **enterVerdict + showVerdict**
-   - 验收: 能看到投票结果
+   - Acceptance: Can view voting results
 
-**每步测试方法**:
-- 打开 `index.html`
-- 手动操作测试功能
-- 检查控制台无错误
+**Testing Method for Each Step**:
+- Open `index.html`
+- Manual operation to test functionality
+- Check console for no errors
 
 ---
 
-## 阶段六：联调测试（Day 3下午）
+## Phase 6: Integration Testing (Day 3 Afternoon)
 
-### Task 6.1: 端到端测试
+### Task 6.1: End-to-End Testing
 
-**测试流程**:
+**Test Process**:
 
 ```
-1. 启动anvil
-2. 部署合约（记录地址）
-3. 更新后端配置中的合约地址
-4. 启动后端
-5. 打开前端
-6. 执行完整游戏流程:
-   - 阅读卷宗 ✓
-   - 查看证据 ✓
-   - 与当事人对话 ✓
-   - 出示证物 ✓
-   - 进入说服阶段 ✓
-   - 与陪审员对话（至少3轮）✓
-   - 进入审判 ✓
-   - 查看投票结果 ✓
+1. Start anvil
+2. Deploy contract (record address)
+3. Update contract address in backend config
+4. Start backend
+5. Open frontend
+6. Execute complete game flow:
+   - Read dossier ✓
+   - View evidence ✓
+   - Dialogue with witnesses ✓
+   - Present evidence ✓
+   - Enter persuasion phase ✓
+   - Dialogue with jurors (at least 3 rounds) ✓
+   - Enter trial ✓
+   - View voting results ✓
 ```
 
-**验收标准**: 完整流程无报错，能看到最终判决
+**Acceptance Criteria**: Complete flow without errors, can see final verdict
 
 ---
 
-### Task 6.2: 边界测试
+### Task 6.2: Boundary Testing
 
-**测试项**:
-- [ ] 空消息发送
-- [ ] 快速连续发送消息
-- [ ] 刷新页面后状态
-- [ ] 合约地址错误时的错误处理
-- [ ] API超时处理
-
----
-
-## 检查清单
-
-### Day 1 结束时必须完成
-- [ ] 合约编译通过
-- [ ] 合约测试全部通过（8个）
-- [ ] 合约能部署到anvil
-- [ ] VotingTool能连接合约
-- [ ] FastAPI能启动
-
-### Day 2 结束时必须完成
-- [ ] JurorAgent能加载角色卡
-- [ ] JurorAgent能与LLM对话
-- [ ] 立场追踪功能正常
-- [ ] 所有API端点能响应
-
-### Day 3 结束时必须完成
-- [ ] 前端能加载
-- [ ] 前端能调用后端API
-- [ ] 完整游戏流程能跑通
-- [ ] 投票结果能显示
+**Test Items**:
+- [ ] Empty message sending
+- [ ] Rapid consecutive message sending
+- [ ] State after page refresh
+- [ ] Error handling for incorrect contract address
+- [ ] API timeout handling
 
 ---
 
-## 常见问题处理
+## Checklist
 
-### 问题: forge命令找不到
+### Must Complete by End of Day 1
+- [ ] Contract compiles
+- [ ] All contract tests pass (8 total)
+- [ ] Contract can be deployed to anvil
+- [ ] VotingTool can connect to contract
+- [ ] FastAPI can start
+
+### Must Complete by End of Day 2
+- [ ] JurorAgent can load character cards
+- [ ] JurorAgent can dialogue with LLM
+- [ ] Stance tracking works
+- [ ] All API endpoints can respond
+
+### Must Complete by End of Day 3
+- [ ] Frontend can load
+- [ ] Frontend can call backend API
+- [ ] Complete game flow works
+- [ ] Voting results can be displayed
+
+---
+
+## Common Issues
+
+### Issue: forge command not found
 ```bash
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
 ```
 
-### 问题: Python导入错误
+### Issue: Python import errors
 ```bash
 cd backend
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```
 
-### 问题: CORS错误
-检查 `main.py` 中的 CORS 配置
+### Issue: CORS errors
+Check CORS configuration in `main.py`
 
-### 问题: 合约调用失败
-1. 检查anvil是否运行
-2. 检查合约地址是否正确
-3. 检查私钥是否有余额
+### Issue: Contract call fails
+1. Check if anvil is running
+2. Check if contract address is correct
+3. Check if private key has balance
 
-### 问题: LLM调用失败
-1. 检查 `.env` 中的 API_KEY
-2. 检查网络连接
-3. 尝试用haiku模型降低成本
+### Issue: LLM call fails
+1. Check API_KEY in `.env`
+2. Check network connection
+3. Try using haiku model to reduce cost

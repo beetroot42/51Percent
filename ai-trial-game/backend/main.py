@@ -1,19 +1,26 @@
 """
-AI审判游戏 - 后端API
+AI Trial Game - Backend API
 
-使用FastAPI提供REST接口。
+Provides REST interface using FastAPI.
 """
+
+import json
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# from backend.services.agent_manager import AgentManager
-# from backend.tools.voting_tool import VotingTool
+from services.agent_manager import AgentManager
+from tools.voting_tool import VotingTool
 
-app = FastAPI(title="AI审判游戏", version="0.1.0")
+app = FastAPI(title="AI Trial Game", version="0.1.0")
 
-# CORS配置（允许前端访问）
+# CORS configuration (allow frontend access)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,21 +30,21 @@ app.add_middleware(
 )
 
 
-# ============ 请求/响应模型 ============
+# ============ Request/Response Models ============
 
 class ChatRequest(BaseModel):
-    """对话请求"""
+    """Chat request"""
     message: str
 
 
 class ChatResponse(BaseModel):
-    """对话响应"""
+    """Chat response"""
     reply: str
     juror_id: str
 
 
 class VoteResponse(BaseModel):
-    """投票响应"""
+    """Vote response"""
     guilty_votes: int
     not_guilty_votes: int
     verdict: str
@@ -45,223 +52,302 @@ class VoteResponse(BaseModel):
 
 
 class GameState(BaseModel):
-    """游戏状态"""
+    """Game state"""
     phase: str  # investigation / persuasion / verdict
     jurors: list[dict]
     vote_state: dict | None
 
 
-# ============ 全局状态 ============
+# ============ Global State ============
 
-# TODO: 初始化
-# agent_manager = AgentManager()
-# voting_tool = VotingTool(contract_address="...")
-# game_phase = "investigation"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CONTENT_ROOT = PROJECT_ROOT / "content"
+JUROR_CONTENT = CONTENT_ROOT / "jurors"
+
+game_phase = "investigation"
+
+agent_manager = AgentManager()
+agent_manager.load_all_jurors(content_path=str(JUROR_CONTENT))
+
+_contract_address = os.getenv(
+    "JURY_VOTING_CONTRACT_ADDRESS",
+    "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+)
+_private_keys = os.getenv("JURY_VOTING_PRIVATE_KEYS", "")
+_private_key_list = [key.strip() for key in _private_keys.split(",") if key.strip()]
+voting_tool = VotingTool(
+    contract_address=_contract_address,
+    private_keys=_private_key_list
+) if _contract_address else None
 
 
-# ============ API端点 ============
+# ============ API Endpoints ============
 
 @app.get("/")
 async def root():
-    """健康检查"""
-    return {"status": "ok", "game": "AI审判"}
+    """Health check"""
+    return {"status": "ok", "game": "AI Trial"}
 
 
 @app.get("/state", response_model=GameState)
 async def get_game_state():
     """
-    获取当前游戏状态
+    Get current game state
 
     Returns:
-        GameState对象
+        GameState object
 
-    TODO:
-    - 返回当前phase
-    - 返回陪审员列表（基本信息）
-    - 如果phase==verdict，返回投票状态
     """
-    pass
+    vote_state = None
+    if game_phase == "verdict":
+        vote_state = agent_manager.collect_votes()
+
+    return GameState(
+        phase=game_phase,
+        jurors=agent_manager.get_all_juror_info(),
+        vote_state=vote_state
+    )
 
 
 @app.post("/phase/{phase_name}")
 async def set_phase(phase_name: str):
     """
-    切换游戏阶段
+    Switch game phase
 
     Args:
         phase_name: investigation / persuasion / verdict
 
-    TODO:
-    - 验证phase_name有效
-    - 更新全局game_phase
-    - 如果切换到verdict，触发投票
     """
-    pass
+    valid_phases = {"investigation", "persuasion", "verdict"}
+    if phase_name not in valid_phases:
+        raise HTTPException(status_code=400, detail="Invalid phase")
+
+    global game_phase
+    game_phase = phase_name
+
+    return {"phase": game_phase}
 
 
 @app.get("/jurors")
 async def get_jurors():
     """
-    获取所有陪审员信息
+    Get all juror information
 
     Returns:
         [{"id": str, "name": str}, ...]
 
-    TODO:
-    - 调用agent_manager.get_all_juror_info()
     """
-    pass
+    return agent_manager.get_all_juror_info()
 
 
 @app.get("/juror/{juror_id}")
 async def get_juror(juror_id: str):
     """
-    获取指定陪审员信息
+    Get specific juror information
 
     Args:
-        juror_id: 陪审员ID
+        juror_id: Juror ID
 
     Returns:
         {"id": str, "name": str, "first_message": str}
 
-    TODO:
-    - 获取agent
-    - 返回基本信息
     """
-    pass
+    try:
+        agent = agent_manager.get_juror(juror_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "id": agent.juror_id,
+        "name": agent.config.name if agent.config else "",
+        "first_message": agent.get_first_message(),
+    }
 
 
 @app.post("/chat/{juror_id}", response_model=ChatResponse)
 async def chat_with_juror(juror_id: str, request: ChatRequest):
     """
-    与陪审员对话
+    Chat with a juror
 
     Args:
-        juror_id: 陪审员ID
-        request: 包含message的请求体
+        juror_id: Juror ID
+        request: Request body containing message
 
     Returns:
         ChatResponse
 
-    TODO:
-    - 检查phase是否为persuasion
-    - 调用agent_manager.chat_with_juror()
-    - 返回回复
     """
-    pass
+    if game_phase != "persuasion":
+        raise HTTPException(status_code=400, detail="Not in persuasion phase")
+
+    try:
+        response = await agent_manager.chat_with_juror(juror_id, request.message)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return ChatResponse(
+        reply=response["reply"],
+        juror_id=response["juror_id"]
+    )
 
 
 @app.post("/vote", response_model=VoteResponse)
 async def trigger_vote():
     """
-    触发投票
+    Trigger voting
 
-    收集所有陪审员立场，执行链上投票。
+    Collect all juror stances and execute on-chain voting.
 
     Returns:
         VoteResponse
 
-    TODO:
-    - 调用agent_manager.collect_votes()
-    - 调用voting_tool.cast_all_votes()
-    - 返回结果
     """
-    pass
+    if voting_tool is None:
+        raise HTTPException(status_code=500, detail="Voting tool not configured")
+    if not _private_key_list:
+        raise HTTPException(status_code=500, detail="No juror private keys configured")
+
+    vote_result = agent_manager.collect_votes()
+    votes = {
+        juror_id: (vote_data["vote"] == "GUILTY")
+        for juror_id, vote_data in vote_result["votes"].items()
+    }
+    tx_hashes = voting_tool.cast_all_votes(votes)
+
+    return VoteResponse(
+        guilty_votes=vote_result["guilty_count"],
+        not_guilty_votes=vote_result["not_guilty_count"],
+        verdict=vote_result["verdict"],
+        tx_hashes=tx_hashes
+    )
 
 
 @app.post("/reset")
 async def reset_game():
     """
-    重置游戏
+    Reset game
 
-    TODO:
-    - 重置所有agent
-    - 重置phase为investigation
-    - 可选：部署新合约
     """
-    pass
+    global game_phase
+    agent_manager.reset_all()
+    game_phase = "investigation"
+    return {"status": "reset", "phase": game_phase}
 
 
-# ============ 静态内容接口 ============
+# ============ Static Content Endpoints ============
 
 @app.get("/content/dossier")
 async def get_dossier():
     """
-    获取卷宗内容
+    Get dossier content
 
     Returns:
         {"title": str, "content": str}
 
-    TODO:
-    - 读取content/case/dossier.json
     """
-    pass
+    dossier_path = CONTENT_ROOT / "case" / "dossier.json"
+    if not dossier_path.exists():
+        raise HTTPException(status_code=404, detail="Dossier not found")
+
+    return json.loads(dossier_path.read_text(encoding="utf-8"))
 
 
 @app.get("/content/evidence")
 async def get_evidence_list():
     """
-    获取证据列表
+    Get evidence list
 
     Returns:
         [{"id": str, "name": str, "icon": str}, ...]
 
-    TODO:
-    - 扫描content/case/evidence/目录
     """
-    pass
+    evidence_dir = CONTENT_ROOT / "case" / "evidence"
+    if not evidence_dir.exists():
+        return []
+
+    evidence_list = []
+    for path in sorted(evidence_dir.glob("*.json")):
+        if path.name == "_template.json":
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        evidence_list.append({
+            "id": data.get("id", path.stem),
+            "name": data.get("name", path.stem),
+            "icon": data.get("icon", "")
+        })
+    return evidence_list
 
 
 @app.get("/content/evidence/{evidence_id}")
 async def get_evidence(evidence_id: str):
     """
-    获取指定证据详情
+    Get specific evidence details
 
     Args:
-        evidence_id: 证据ID
+        evidence_id: Evidence ID
 
     Returns:
         {"id": str, "name": str, "description": str, "content": str}
 
-    TODO:
-    - 读取content/case/evidence/{evidence_id}.json
     """
-    pass
+    evidence_path = CONTENT_ROOT / "case" / "evidence" / f"{evidence_id}.json"
+    if not evidence_path.exists():
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    return json.loads(evidence_path.read_text(encoding="utf-8"))
 
 
 @app.get("/content/witnesses")
 async def get_witness_list():
     """
-    获取当事人列表
+    Get witness list
 
     Returns:
         [{"id": str, "name": str, "portrait": str}, ...]
 
-    TODO:
-    - 扫描content/witnesses/目录
     """
-    pass
+    witness_dir = CONTENT_ROOT / "witnesses"
+    if not witness_dir.exists():
+        return []
+
+    witness_list = []
+    for path in sorted(witness_dir.glob("*.json")):
+        if path.name == "_template.json":
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        witness_list.append({
+            "id": data.get("id", path.stem),
+            "name": data.get("name", path.stem),
+            "portrait": data.get("portrait", "")
+        })
+    return witness_list
 
 
 @app.get("/content/witness/{witness_id}")
 async def get_witness(witness_id: str):
     """
-    获取当事人对话树
+    Get witness dialogue tree
 
     Args:
-        witness_id: 当事人ID
+        witness_id: Witness ID
 
     Returns:
-        完整的对话树JSON
+        Complete dialogue tree JSON
 
-    TODO:
-    - 读取content/witnesses/{witness_id}.json
     """
-    pass
+    witness_path = CONTENT_ROOT / "witnesses" / f"{witness_id}.json"
+    if not witness_path.exists():
+        raise HTTPException(status_code=404, detail="Witness not found")
+
+    return json.loads(witness_path.read_text(encoding="utf-8"))
 
 
-# ============ 启动 ============
+# ============ Startup ============
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    server_host = os.getenv("SERVER_HOST", "0.0.0.0")
+    server_port = int(os.getenv("SERVER_PORT", "5000"))
+    uvicorn.run(app, host=server_host, port=server_port)
