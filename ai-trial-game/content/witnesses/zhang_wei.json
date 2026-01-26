@@ -1,0 +1,54 @@
+{
+  "id": "zhang_wei",
+  "name": "张伟",
+  "portrait": "zhang_wei.png",
+  "description": "受害人之子，案发时不在场",
+  "dialogues": [
+    {
+      "id": "start",
+      "text": "我父亲的死...我到现在都不敢相信。那个机器人，我们信任了它两年...",
+      "options": [
+        {"text": "你和父亲的关系怎么样？", "next": "relationship"},
+        {"text": "案发当晚你在哪里？", "next": "alibi"}
+      ]
+    },
+    {
+      "id": "relationship",
+      "text": "我们...关系还行吧。他退休后脾气不太好，我们偶尔会有些争执。但那都是小事。",
+      "options": [
+        {"text": "听说有遗产纠纷？", "next": "inheritance"},
+        {"text": "回到其他问题", "next": "start"}
+      ]
+    },
+    {
+      "id": "alibi",
+      "text": "我在公司加班，有监控可以证明。我是第二天早上才知道消息的。",
+      "options": [
+        {"text": "你认识什么黑客吗？", "next": "hacker"},
+        {"text": "回到其他问题", "next": "start"}
+      ]
+    },
+    {
+      "id": "inheritance",
+      "text": "那都是外人瞎传的！我父亲的财产我根本不在乎！",
+      "options": []
+    },
+    {
+      "id": "hacker",
+      "text": "我...我不认识什么黑客。你为什么这么问？",
+      "options": []
+    },
+    {
+      "id": "confronted",
+      "text": "这...这聊天记录是伪造的！一定是有人陷害我！",
+      "options": []
+    }
+  ],
+  "evidence_reactions": {
+    "chat_history": {
+      "text": "张伟看到聊天记录后脸色大变：\"这...这是从哪来的？我可以解释...\"",
+      "unlock_clue": "zhang_wei_suspect",
+      "unlock_dialogue": "confronted"
+    }
+  }
+}
