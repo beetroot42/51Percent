@@ -6,10 +6,23 @@ Provides REST interface using FastAPI.
 
 import json
 import os
+import sys
 from pathlib import Path
+
+# Windows encoding guard: keep UTF-8 output stable
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load backend/.env explicitly so it works from any working directory
+_env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(_env_path)
+
+# Ensure backend-local imports work when launched via uvicorn
+sys.path.append(str(Path(__file__).resolve().parent))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -75,11 +88,17 @@ _contract_address = os.getenv(
     "JURY_VOTING_CONTRACT_ADDRESS",
     "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 )
+_rpc_url = os.getenv("RPC_URL", "http://127.0.0.1:8545")
 _private_keys = os.getenv("JURY_VOTING_PRIVATE_KEYS", "")
 _private_key_list = [key.strip() for key in _private_keys.split(",") if key.strip()]
+_tx_timeout = int(os.getenv("VOTING_TX_TIMEOUT", "120"))
+_tx_confirmations = int(os.getenv("VOTING_TX_CONFIRMATIONS", "1"))
 voting_tool = VotingTool(
     contract_address=_contract_address,
-    private_keys=_private_key_list
+    rpc_url=_rpc_url,
+    private_keys=_private_key_list,
+    tx_timeout=_tx_timeout,
+    tx_confirmations=_tx_confirmations
 ) if _contract_address else None
 
 
@@ -188,6 +207,8 @@ async def chat_with_juror(juror_id: str, request: ChatRequest):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
 
     return ChatResponse(
         reply=response["reply"],
@@ -216,7 +237,10 @@ async def trigger_vote():
         juror_id: (vote_data["vote"] == "GUILTY")
         for juror_id, vote_data in vote_result["votes"].items()
     }
-    tx_hashes = voting_tool.cast_all_votes(votes)
+    try:
+        tx_hashes = voting_tool.cast_all_votes(votes)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Voting failed: {exc}") from exc
 
     return VoteResponse(
         guilty_votes=vote_result["guilty_count"],
@@ -363,11 +387,41 @@ if FRONTEND_DIR.exists():
 
 # ============ Startup ============
 
+def find_available_port(host: str, start_port: int, max_attempts: int = 10) -> int:
+    """Find an available port in a range."""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind((host, port))
+            sock.close()
+            return port
+        except OSError:
+            continue
+    raise RuntimeError(
+        f"Unable to find an available port (tried {start_port}-{start_port + max_attempts - 1})"
+    )
+
 if __name__ == "__main__":
     import uvicorn
     server_host = os.getenv("SERVER_HOST", "0.0.0.0")
-    server_port = int(os.getenv("SERVER_PORT", "5000"))
-    print(f"\n🎮 AI Trial Game")
+    preferred_port = int(os.getenv("SERVER_PORT", "5000"))
+
+    # Try preferred port; if occupied, find an available one.
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((server_host, preferred_port))
+        sock.close()
+        server_port = preferred_port
+    except OSError:
+        sock.close()
+        print(f"\nWarning: port {preferred_port} is in use (possibly the LLM API proxy).")
+        server_port = find_available_port(server_host, preferred_port + 1)
+        print(f"Switched to port {server_port}.\n")
+
+    print("AI Trial Game")
+    print(f"   Listening: {server_host}:{server_port}")
     print(f"   API: http://localhost:{server_port}/")
     print(f"   Game: http://localhost:{server_port}/game\n")
     uvicorn.run(app, host=server_host, port=server_port)

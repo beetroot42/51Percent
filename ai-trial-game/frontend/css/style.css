@@ -184,6 +184,28 @@ body {
     gap: 10px;
 }
 
+@media (max-width: 768px) {
+    #persuasion-phase {
+        flex-direction: column;
+    }
+    #juror-list {
+        width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 5px;
+    }
+    .juror-card {
+        flex-direction: column;
+        padding: 5px;
+        font-size: 0.8rem;
+        text-align: center;
+    }
+    .juror-card img {
+        width: 32px;
+        height: 32px;
+    }
+}
+
 .juror-card {
     background: #16213e;
     padding: 15px;
@@ -374,4 +396,167 @@ body {
 
 #error-toast.hidden {
     display: none;
+}
+
+/* ============ 投票弹窗样式 ============ */
+
+.voting-modal-content {
+    text-align: center;
+}
+
+.voting-steps {
+    margin: 20px 0;
+    text-align: left;
+    font-size: 0.9rem;
+    color: #888;
+}
+
+.voting-steps .step {
+    padding: 5px 0;
+    transition: color 0.3s;
+}
+
+.voting-steps .step.active {
+    color: #e94560;
+    font-weight: bold;
+}
+
+.progress-container {
+    width: 100%;
+    height: 10px;
+    background: #333;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    width: 0%;
+    height: 100%;
+    background: #e94560;
+    transition: width 0.3s ease-out;
+}
+
+#voting-spinner-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    margin: 20px 0;
+}
+
+#voting-spinner {
+    width: 30px;
+    height: 30px;
+    border-width: 3px;
+}
+
+#voting-status-text {
+    font-size: 0.95rem;
+    color: #4ecca3;
+    font-weight: 500;
+}
+
+#voting-status-text.waiting {
+    animation: blink 1.5s infinite;
+    color: #f0a500;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+#voting-error-actions {
+    margin-top: 25px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.secondary-btn {
+    padding: 12px 25px;
+    background: #4ecca3;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.secondary-btn:hover {
+    background: #45b791;
+}
+
+.text-btn {
+    background: none;
+    border: none;
+    color: #888;
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.text-btn:hover {
+    color: #eee;
+}
+
+#tx-info {
+    margin-top: 15px;
+    font-size: 0.85rem;
+    color: #888;
+}
+
+#tx-link {
+    color: #4ecca3;
+    text-decoration: none;
+    word-break: break-all;
+    display: block;
+    margin-top: 5px;
+}
+
+#tx-link:hover {
+    text-decoration: underline;
+}
+
+.tx-hash {
+    display: block;
+    background: #1a1a2e;
+    padding: 10px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-family: 'Courier New', Courier, monospace;
+    word-break: break-all;
+    user-select: all; /* Allow easy copying */
+    margin: 10px 0;
+    color: #4ecca3;
+}
+
+.finality-note {
+    font-size: 0.8rem;
+    color: #888;
+    font-style: italic;
+    margin-top: 10px;
+}
+
+/* 投票条目适配 5 人 */
+.vote-item {
+    padding: 8px;
+    margin: 5px;
+    border-radius: 4px;
+    background: #16213e;
+    display: inline-block;
+    min-width: 150px;
+}
+
+.vote-item.guilty {
+    color: #e94560;
+    border-left: 4px solid #e94560;
+}
+
+.vote-item.not-guilty {
+    color: #4ecca3;
+    border-left: 4px solid #4ecca3;
 }

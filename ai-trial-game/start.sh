@@ -1,13 +1,13 @@
-#!/bin/bash
-# AI Trial Game - 启动脚本
+﻿#!/bin/bash
+# AI Trial Game - startup script
 
 cd "$(dirname "$0")/backend"
 
 echo "================================"
-echo "  AI Trial Game - AI审判"
+echo "  AI Trial Game"
 echo "================================"
 echo ""
-echo "启动服务器..."
+echo "Starting server..."
 echo ""
 
 python3 main.py

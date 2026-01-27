@@ -9,6 +9,9 @@ contract JuryVoting {
     /// @notice Total number of jurors
     uint public totalJurors;
 
+    /// @notice Juror whitelist
+    mapping(address => bool) public isJuror;
+
     /// @notice Number of guilty votes
     uint public guiltyVotes;
 
@@ -35,17 +38,28 @@ contract JuryVoting {
     // ============ Constructor ============
 
     /// @notice Initialize the contract
-    /// @param _totalJurors Total number of jurors
-    constructor(uint _totalJurors) {
-        require(_totalJurors > 0, "Must have at least 1 juror");
-        totalJurors = _totalJurors;
+    /// @param _jurors Fixed juror whitelist (5 addresses)
+    constructor(address[5] memory _jurors) {
+        totalJurors = 5;
+        for (uint i = 0; i < _jurors.length; i++) {
+            address juror = _jurors[i];
+            require(juror != address(0), "Invalid juror");
+            require(!isJuror[juror], "Duplicate juror");
+            isJuror[juror] = true;
+        }
+    }
+
+    /// @notice Restrict to juror addresses only
+    modifier onlyJuror() {
+        require(isJuror[msg.sender], "Not juror");
+        _;
     }
 
     // ============ External Functions ============
 
     /// @notice Juror votes
     /// @param guilty true for guilty, false for not guilty
-    function vote(bool guilty) external {
+    function vote(bool guilty) external onlyJuror {
         require(!hasVoted[msg.sender], "Already voted");
         require(!votingClosed, "Voting closed");
 
@@ -94,18 +108,5 @@ contract JuryVoting {
             return "GUILTY";
         }
         return "NOT_GUILTY";
-    }
-
-    /// @notice Force close voting (admin function)
-    function closeVoting() external {
-        if (votingClosed) {
-            return;
-        }
-
-        votingClosed = true;
-        string memory verdict = guiltyVotes > notGuiltyVotes
-            ? "GUILTY"
-            : "NOT_GUILTY";
-        emit VotingClosed(verdict, guiltyVotes, notGuiltyVotes);
     }
 }

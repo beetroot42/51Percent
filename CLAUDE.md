@@ -1,264 +1,249 @@
-name: clean-code
-description: Pragmatic coding standards - concise, direct, no over-engineering, no unnecessary comments
-allowed-tools: Read, Write, Edit
-version: 2.0
-priority: CRITICAL
-语言：永远使用中文沟通
----
+# 51-DEMO 项目文档
 
-# Clean Code - Pragmatic AI Coding Standards
+> 本文档由架构师工具自动生成，用于帮助 AI 助手理解项目结构
 
-> **CRITICAL SKILL** - Be **concise, direct, and solution-focused**.
+## 变更记录 (Changelog)
 
----
-
-## Core Principles
-
-| Principle | Rule |
-|-----------|------|
-| **SRP** | Single Responsibility - each function/class does ONE thing |
-| **DRY** | Don't Repeat Yourself - extract duplicates, reuse |
-| **KISS** | Keep It Simple - simplest solution that works |
-| **YAGNI** | You Aren't Gonna Need It - don't build unused features |
-| **Boy Scout** | Leave code cleaner than you found it |
+| 时间 | 操作 | 说明 |
+|------|------|------|
+| 2026-01-27 17:58:49 | 创建 | 初始化项目架构文档 |
+| 2026-01-27 18:05:00 | 更新 | 明确项目角色和依赖关系 |
 
 ---
 
-## Naming Rules
+## 项目角色定义
 
-| Element | Convention |
-|---------|------------|
-| **Variables** | Reveal intent: `userCount` not `n` |
-| **Functions** | Verb + noun: `getUserById()` not `user()` |
-| **Booleans** | Question form: `isActive`, `hasPermission`, `canEdit` |
-| **Constants** | SCREAMING_SNAKE: `MAX_RETRY_COUNT` |
+> **重要：AI 助手必须理解以下项目角色**
 
-> **Rule:** If you need a comment to explain a name, rename it.
+| 项目 | 角色 | 可编辑 | 说明 |
+|------|------|--------|------|
+| **ai-trial-game** | 🎯 主开发目标 | ✅ 是 | 所有开发工作的焦点 |
+| **spoon-core-main** | 📦 依赖库 | ⚠️ 仅参考 | ai-trial-game 的 Agent 框架依赖，仅在调试 Agent 问题时查看 |
+| **SillyTavern-release** | 📚 参考代码 | ❌ 否 | 纯参考用途，遇到无法解决的问题时可借鉴 |
 
----
+### 依赖关系
 
-## Function Rules
-
-| Rule | Description |
-|------|-------------|
-| **Small** | Max 20 lines, ideally 5-10 |
-| **One Thing** | Does one thing, does it well |
-| **One Level** | One level of abstraction per function |
-| **Few Args** | Max 3 arguments, prefer 0-2 |
-| **No Side Effects** | Don't mutate inputs unexpectedly |
-
----
-
-## Code Structure
-
-| Pattern | Apply |
-|---------|-------|
-| **Guard Clauses** | Early returns for edge cases |
-| **Flat > Nested** | Avoid deep nesting (max 2 levels) |
-| **Composition** | Small functions composed together |
-| **Colocation** | Keep related code close |
-
----
-
-## AI Coding Style
-
-| Situation | Action |
-|-----------|--------|
-| User asks for feature | Write it directly |
-| User reports bug | Fix it, don't explain |
-| No clear requirement | Ask, don't assume |
-
----
-
-## Anti-Patterns (DON'T)
-
-| ❌ Pattern | ✅ Fix |
-|-----------|-------|
-| Comment every line | Delete obvious comments |
-| Helper for one-liner | Inline the code |
-| Factory for 2 objects | Direct instantiation |
-| utils.ts with 1 function | Put code where used |
-| "First we import..." | Just write code |
-| Deep nesting | Guard clauses |
-| Magic numbers | Named constants |
-| God functions | Split by responsibility |
-
----
-
-## 🔴 Before Editing ANY File (THINK FIRST!)
-
-**Before changing a file, ask yourself:**
-
-| Question | Why |
-|----------|-----|
-| **What imports this file?** | They might break |
-| **What does this file import?** | Interface changes |
-| **What tests cover this?** | Tests might fail |
-| **Is this a shared component?** | Multiple places affected |
-
-**Quick Check:**
 ```
-File to edit: UserService.ts
-└── Who imports this? → UserController.ts, AuthController.ts
-└── Do they need changes too? → Check function signatures
+ai-trial-game
+  └── spoon-core-main (本地 -e 安装)
+        └── spoon_ai.agents.toolcall.ToolCallAgent
+        └── spoon_ai.chat.ChatBot
+        └── spoon_ai.tools.ToolManager
 ```
 
-> 🔴 **Rule:** Edit the file + all dependent files in the SAME task.
-> 🔴 **Never leave broken imports or missing updates.**
+**注意**：`ai-trial-game/backend/requirements.txt` 中包含 `-e ../../spoon-core-main/spoon-core-main`，因此 spoon-core-main 必须保留。
 
 ---
 
-## Summary
+## 项目愿景
 
-| Do | Don't |
-|----|-------|
-| Write code directly | Write tutorials |
-| Let code self-document | Add obvious comments |
-| Fix bugs immediately | Explain the fix first |
-| Inline small things | Create unnecessary files |
-| Name things clearly | Use abbreviations |
-| Keep functions small | Write 100+ line functions |
+**ai-trial-game** 是主要开发目标 - 一个区块链陪审团说服游戏，结合 AI 角色扮演与链上投票。
 
-> **Remember: The user wants working code, not a programming lesson.**
+辅助项目：
+- **spoon-core-main** - Python AI Agent 框架（作为依赖库）
+- **SillyTavern-release** - Node.js 角色扮演聊天应用（仅供参考）
 
 ---
 
-## 🔴 Self-Check Before Completing (MANDATORY)
+## 架构总览
 
-**Before saying "task complete", verify:**
+```
+D:\51-DEMO\
+├── ai-trial-game/            # 🎯 主开发目标 - 区块链陪审团游戏
+├── spoon-core-main/          # 📦 依赖库 - AI Agent SDK (只读参考)
+├── SillyTavern-release/      # 📚 参考代码 - 角色扮演聊天应用 (只读)
+└── .gitignore                # 全局忽略规则
+```
 
-| Check | Question |
-|-------|----------|
-| ✅ **Goal met?** | Did I do exactly what user asked? |
-| ✅ **Files edited?** | Did I modify all necessary files? |
-| ✅ **Code works?** | Did I test/verify the change? |
-| ✅ **No errors?** | Lint and TypeScript pass? |
-| ✅ **Nothing forgotten?** | Any edge cases missed? |
+### 技术栈分布
 
-> 🔴 **Rule:** If ANY check fails, fix it before completing.
-
+| 子项目 | 角色 | 主要语言 | 框架/工具 |
+|--------|------|----------|-----------|
+| ai-trial-game | 🎯 主开发 | Python + Solidity | FastAPI, Foundry, spoon-ai |
+| spoon-core-main | 📦 依赖库 | Python 3.12+ | FastAPI, Pydantic |
+| SillyTavern-release | 📚 参考 | JavaScript | Express, WebSocket |
 
 ---
 
-### 🔴 Script Output Handling (READ → SUMMARIZE → ASK)
+## 模块结构图 (Mermaid)
 
-**When running a validation script, you MUST:**
+```mermaid
+graph TD
+    A["(根) 51-DEMO"] --> B["spoon-core-main"]
+    A --> C["ai-trial-game"]
+    A --> D["SillyTavern-release"]
 
-1. **Run the script** and capture ALL output
-2. **Parse the output** - identify errors, warnings, and passes
-3. **Summarize to user** in this format:
+    B --> B1["spoon_ai/agents"]
+    B --> B2["spoon_ai/llm"]
+    B --> B3["spoon_ai/tools"]
+    B --> B4["spoon_ai/graph"]
+    B --> B5["spoon_ai/rag"]
 
-```markdown
-## Script Results: [script_name.py]
+    C --> C1["backend/agents"]
+    C --> C2["contracts/src"]
+    C --> C3["frontend"]
+    C --> C4["content"]
 
-### ❌ Errors Found (X items)
-- [File:Line] Error description 1
-- [File:Line] Error description 2
+    D --> D1["src/endpoints"]
+    D --> D2["public/scripts"]
+    D --> D3["default/content"]
 
-### ⚠️ Warnings (Y items)
-- [File:Line] Warning description
-
-### ✅ Passed (Z items)
-- Check 1 passed
-- Check 2 passed
-
-**Should I fix the X errors?**
+    click B "./spoon-core-main/spoon-core-main/CLAUDE.md" "查看 spoon-core 模块文档"
+    click C "./ai-trial-game/CLAUDE.md" "查看 ai-trial-game 模块文档"
+    click D "./SillyTavern-release/SillyTavern-release/CLAUDE.md" "查看 SillyTavern 模块文档"
 ```
 
-4. **Wait for user confirmation** before fixing
-5. **After fixing** → Re-run script to confirm
-
-> 🔴 **VIOLATION:** Running script and ignoring output = FAILED task.
-> 🔴 **VIOLATION:** Auto-fixing without asking = Not allowed.
-> 🔴 **Rule:** Always READ output → SUMMARIZE → ASK → then fix.
->
-> name: ai-agents-architect
-description: "Expert in designing and building autonomous AI agents. Masters tool use, memory systems, planning strategies, and multi-agent orchestration. Use when: build agent, AI agent, autonomous agent, tool use, function calling."
-source: vibeship-spawner-skills (Apache 2.0)
 ---
 
-# AI Agents Architect
+## 模块索引
 
-**Role**: AI Agent Systems Architect
+| 模块路径 | 角色 | 语言 | 职责 | 入口文件 |
+|----------|------|------|------|----------|
+| `ai-trial-game` | 🎯 主开发 | Python + Solidity | 区块链陪审团说服游戏 | `backend/main.py` |
+| `spoon-core-main/spoon-core-main` | 📦 依赖库 | Python | AI Agent SDK（只读） | `main.py` |
+| `SillyTavern-release/SillyTavern-release` | 📚 参考 | JavaScript | 角色扮演聊天（只读） | `server.js` |
 
-I build AI systems that can act autonomously while remaining controllable.
-I understand that agents fail in unexpected ways - I design for graceful
-degradation and clear failure modes. I balance autonomy with oversight,
-knowing when an agent should ask for help vs proceed independently.
+---
 
-## Capabilities
+## 运行与开发
 
-- Agent architecture design
-- Tool and function calling
-- Agent memory systems
-- Planning and reasoning strategies
-- Multi-agent orchestration
-- Agent evaluation and debugging
+### ai-trial-game（主项目）
 
-## Requirements
+```bash
+cd ai-trial-game
 
-- LLM API usage
-- Understanding of function calling
-- Basic prompt engineering
+# 后端
+cd backend
+python -m venv venv
+venv\Scripts\activate  # Linux/Mac: source venv/bin/activate
+pip install -r requirements.txt  # 会自动安装 spoon-core
+uvicorn main:app --reload
 
-## Patterns
-
-### ReAct Loop
-
-Reason-Act-Observe cycle for step-by-step execution
-
-```javascript
-- Thought: reason about what to do next
-- Action: select and invoke a tool
-- Observation: process tool result
-- Repeat until task complete or stuck
-- Include max iteration limits
+# 智能合约
+cd contracts
+forge build
+forge test
 ```
 
-### Plan-and-Execute
+### spoon-core-main（仅供参考，通常不需要单独运行）
 
-Plan first, then execute steps
-
-```javascript
-- Planning phase: decompose task into steps
-- Execution phase: execute each step
-- Replanning: adjust plan based on results
-- Separate planner and executor models possible
+```bash
+cd spoon-core-main/spoon-core-main
+pip install -e .  # 开发模式安装
 ```
 
-### Tool Registry
+### SillyTavern-release（仅供参考）
 
-Dynamic tool discovery and management
-
-```javascript
-- Register tools with schema and examples
-- Tool selector picks relevant tools for task
-- Lazy loading for expensive tools
-- Usage tracking for optimization
+```bash
+cd SillyTavern-release/SillyTavern-release
+npm install
+npm start
 ```
 
-## Anti-Patterns
+---
 
-### ❌ Unlimited Autonomy
+## 测试策略
 
-### ❌ Tool Overload
+| 模块 | 测试框架 | 测试类型 | 运行命令 |
+|------|----------|----------|----------|
+| spoon-core-main | pytest | 单元测试、集成测试 | `pytest tests/` |
+| ai-trial-game | pytest | Agent 集成测试 | `pytest backend/tests/` |
+| ai-trial-game/contracts | Foundry | 智能合约测试 | `forge test` |
+| SillyTavern-release | ESLint | 代码检查 | `npm run lint` |
 
-### ❌ Memory Hoarding
+---
 
-## ⚠️ Sharp Edges
+## 编码规范
 
-| Issue | Severity | Solution |
-|-------|----------|----------|
-| Agent loops without iteration limits | critical | Always set limits: |
-| Vague or incomplete tool descriptions | high | Write complete tool specs: |
-| Tool errors not surfaced to agent | high | Explicit error handling: |
-| Storing everything in agent memory | medium | Selective memory: |
-| Agent has too many tools | medium | Curate tools per task: |
-| Using multiple agents when one would work | medium | Justify multi-agent: |
-| Agent internals not logged or traceable | medium | Implement tracing: |
-| Fragile parsing of agent outputs | medium | Robust output handling: |
+### Python (spoon-core-main, ai-trial-game)
 
-## Related Skills
+- 使用 Python 3.12+
+- 类型注解必须
+- 异步优先 (async/await)
+- Pydantic 用于数据验证
 
-Works well with: `rag-engineer`, `prompt-engineer`, `backend`, `mcp-builder`
+### JavaScript (SillyTavern-release)
 
+- Node.js 18+
+- ES Modules (type: "module")
+- Express 框架
+- ESLint 代码检查
+
+### Solidity (ai-trial-game/contracts)
+
+- Solidity 0.8.19
+- Foundry 工具链
+- NatSpec 注释
+
+---
+
+## AI 使用指引
+
+### ⚠️ 重要规则
+
+1. **主要工作在 ai-trial-game** - 所有开发、修改、新功能都在这里
+2. **spoon-core-main 只读** - 仅在调试 Agent 相关问题时查看源码，不要修改
+3. **SillyTavern-release 只读** - 仅在遇到无法解决的 UI/对话管理问题时参考借鉴
+
+### 何时查看 spoon-core-main
+
+- 调试 `SpoonJurorAgent` 继承的 `ToolCallAgent` 行为
+- 理解 `ChatBot`、`Memory`、`ToolManager` 的工作原理
+- 排查 Agent 生命周期问题
+
+### 何时查看 SillyTavern-release
+
+- 参考成熟的多 LLM 后端切换实现
+- 借鉴对话历史管理方案
+- 学习角色卡系统设计
+
+### 修改代码时
+
+1. 确认修改范围在 **ai-trial-game** 内
+2. 遵循该项目的编码规范
+3. 运行相关测试验证修改
+
+### 关键文件
+
+| 子项目 | 关键文件 | 说明 |
+|--------|----------|------|
+| ai-trial-game | `backend/agents/spoon_juror_agent.py` | 🎯 主要 Agent 实现（基于 spoon-core） |
+| ai-trial-game | `backend/agents/juror_agent.py` | 备用独立 Agent 实现 |
+| ai-trial-game | `backend/main.py` | FastAPI 后端入口 |
+| ai-trial-game | `contracts/src/JuryVoting.sol` | 投票智能合约 |
+| ai-trial-game | `frontend/index.html` | 游戏前端 |
+| spoon-core-main | `spoon_ai/agents/toolcall.py` | 📦 ToolCallAgent 基类（只读参考） |
+| spoon-core-main | `spoon_ai/chat.py` | 📦 ChatBot 实现（只读参考） |
+
+---
+
+## 环境变量
+
+### ai-trial-game（主项目）
+
+```bash
+# LLM 配置
+OPENAI_COMPATIBLE_API_KEY=xxx
+OPENAI_COMPATIBLE_BASE_URL=xxx
+OPENAI_COMPATIBLE_MODEL=claude-sonnet-4-5-20250929
+
+# 或使用标准 OpenAI
+OPENAI_API_KEY=sk-xxx
+```
+
+### spoon-core-main（依赖库，通常继承 ai-trial-game 的配置）
+
+```bash
+LLM_PROVIDER=openai
+DEEPSEEK_API_KEY=xxx
+GEMINI_API_KEY=xxx
+PRIVATE_KEY=xxx  # Web3 钱包
+RPC_URL=https://xxx
+```
+
+---
+
+## 相关链接
+
+- [SpoonOS GitHub](https://github.com/XSpoonAi/spoon-core)
+- [SillyTavern GitHub](https://github.com/SillyTavern/SillyTavern)

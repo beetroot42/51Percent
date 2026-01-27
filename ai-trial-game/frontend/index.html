@@ -156,6 +156,35 @@
             </div>
         </section>
 
+        <!-- 投票等待模态框 -->
+        <div id="voting-modal" class="modal hidden">
+            <div class="modal-content voting-modal-content">
+                <h3>正在提交链上裁决</h3>
+                <div class="voting-steps">
+                    <div class="step" id="step-1">1. 正在连接本地区块链...</div>
+                    <div class="step" id="step-2">2. 正在提交投票交易...</div>
+                    <div class="step" id="step-3">3. 等待区块确认...</div>
+                </div>
+                <div class="progress-container">
+                    <div id="voting-progress-bar" class="progress-bar"></div>
+                </div>
+                
+                <div id="voting-spinner-container">
+                    <div id="voting-spinner" class="spinner"></div>
+                    <p id="voting-status-text">初始化中...</p>
+                </div>
+
+                <div id="tx-info" class="hidden">
+                    <p>交易哈希 (本地链): <a id="tx-link" href="#" target="_blank">0x...</a></p>
+                </div>
+
+                <div id="voting-error-actions" class="hidden">
+                    <button id="retry-vote-btn" class="secondary-btn">重新尝试投票</button>
+                    <button id="cancel-vote-btn" class="text-btn">返回说服阶段</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 全局加载指示器 -->
         <div id="loading-overlay" class="hidden">
             <div class="spinner"></div>

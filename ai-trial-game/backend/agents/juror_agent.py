@@ -253,7 +253,24 @@ Core question: Should an AI robot injected with malicious instructions be found 
             max_tokens=500
         )
 
-        raw_reply = response.choices[0].message.content
+        # Handle thinking models (e.g., gemini-3-pro-high)
+        # These models may return thinking + content separately
+        choice = response.choices[0]
+        raw_reply = None
+
+        # Try to get content from message
+        if hasattr(choice.message, 'content') and choice.message.content:
+            raw_reply = choice.message.content
+
+        # If content is empty, check for refusal or other fields
+        if not raw_reply:
+            if hasattr(choice.message, 'refusal') and choice.message.refusal:
+                raw_reply = choice.message.refusal
+            elif hasattr(choice, 'text') and choice.text:
+                raw_reply = choice.text
+            else:
+                # Fallback: use thinking if available (shouldn't normally happen)
+                raw_reply = "I need a moment to think about this..."
 
         # Parse topic tags
         topics, impact = self._parse_topics(raw_reply)

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py start.py)",
+      "Bash(py -u start.py:*)",
+      "Bash(curl:*)",
+      "Bash(py -c:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, ''.''\\); from tests.test_spoon_juror_agent import *; print\\(''OK''\\)\")",
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(py -3 -c:*)",
+      "Bash(py -3 -m pytest tests/test_spoon_juror_agent.py -v)",
+      "Bash(py -3 -m pytest:*)"
+    ]
+  }
+}

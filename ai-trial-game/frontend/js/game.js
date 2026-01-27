@@ -61,6 +61,13 @@ function bindEvents() {
     document.getElementById('close-dialogue-btn')?.addEventListener('click', closeWitnessDialogue);
     document.getElementById('show-evidence-btn')?.addEventListener('click', showEvidenceSelector);
     document.getElementById('cancel-evidence-btn')?.addEventListener('click', closeEvidenceSelector);
+
+    // 投票重试/取消
+    document.getElementById('retry-vote-btn')?.addEventListener('click', enterVerdict);
+    document.getElementById('cancel-vote-btn')?.addEventListener('click', () => {
+        document.getElementById('voting-modal')?.classList.add('hidden');
+        enterPersuasion();
+    });
 }
 
 function handleTabClick(tabId) {
@@ -102,7 +109,6 @@ async function enterPersuasion() {
 }
 
 async function enterVerdict() {
-    setLoading(true);
     try {
         gameState.phase = PHASES.VERDICT;
         await setPhase(PHASES.VERDICT);
@@ -110,14 +116,158 @@ async function enterVerdict() {
         showSection('verdict-phase');
         document.getElementById('verdict-result').classList.add('hidden');
 
-        const result = await triggerVote();
+        // 使用特殊的投票流程处理
+        const result = await handleVotingProcess();
+        
+        // 显示投票动画（适配 5 人）
         await showVotingAnimation(result);
         showVerdict(result.verdict);
-    } catch (e) {
-        showError('投票失败: ' + e.message);
-    } finally {
-        setLoading(false);
+        
+        // 如果有交易哈希，显示信息
+        if (result.tx_hashes && result.tx_hashes.length > 0) {
+            const txInfo = document.getElementById('tx-info');
+            if (txInfo) {
+                const hash = result.tx_hashes[0];
+                txInfo.innerHTML = `
+                    <p>交易哈希:</p>
+                    <code class="tx-hash">${hash}</code>
+                    <p class="finality-note">判决已记录在本地区块链，不可篡改</p>
+                `;
+                txInfo.classList.remove('hidden');
+            }
+        }
+    } catch (error) {
+        console.error("Voting error:", error);
+        
+        // 显示错误操作按钮
+        document.getElementById('voting-error-actions')?.classList.remove('hidden');
+        document.getElementById('voting-spinner-container')?.classList.add('hidden');
+        
+        const statusText = document.getElementById('voting-status-text');
+        if (statusText) {
+            statusText.textContent = '投票失败';
+            statusText.classList.remove('waiting');
+            statusText.style.color = '#e94560';
+        }
+
+        // 区分基础架构错误和逻辑错误
+        if (error.message.includes("ECONNREFUSED") || 
+            error.message.includes("fetch failed") || 
+            error.message.includes("Failed to fetch") ||
+            error.message.includes("超时")) {
+            showError(
+                "⚠️ 链上通信故障\n\n" +
+                error.message + "\n\n" +
+                "提示: 请检查本地 Anvil 进程是否正常出块。"
+            );
+        } else {
+            showError(`系统提示: ${error.message}`);
+        }
     }
+}
+
+/**
+ * 处理 Sepolia 链上投票流程（带进度条）
+ */
+async function handleVotingProcess() {
+    const modal = document.getElementById('voting-modal');
+    const progressBar = document.getElementById('voting-progress-bar');
+    const statusText = document.getElementById('voting-status-text');
+    const errorActions = document.getElementById('voting-error-actions');
+    const spinnerContainer = document.getElementById('voting-spinner-container');
+    
+    const steps = [
+        document.getElementById('step-1'),
+        document.getElementById('step-2'),
+        document.getElementById('step-3')
+    ];
+
+    // 重置状态
+    if (modal) modal.classList.remove('hidden');
+    if (progressBar) progressBar.style.width = '0%';
+    if (statusText) {
+        statusText.textContent = '准备审议中...';
+        statusText.classList.remove('waiting');
+        statusText.style.color = '';
+    }
+    if (errorActions) errorActions.classList.add('hidden');
+    if (spinnerContainer) spinnerContainer.classList.remove('hidden');
+    steps.forEach(s => s?.classList.remove('active'));
+
+    // 超时提醒计时器
+    let busyHintTimer = setTimeout(() => {
+        if (statusText) {
+            statusText.textContent = '区块链当前繁忙，请稍候...';
+            statusText.classList.add('waiting');
+        }
+    }, 10000);
+
+    const updateStatus = (text, isWaiting = false) => {
+        if (statusText) {
+            statusText.textContent = text;
+            statusText.classList.toggle('waiting', isWaiting);
+        }
+    };
+
+    try {
+        // 步骤 1: 陪审员审议
+        steps[0]?.classList.add('active');
+        updateStatus('陪审员正在进行最后合议...');
+        animateProgressBar(0, 30, 2000);
+        await sleep(2000);
+
+        // 步骤 2: 提交区块链
+        steps[0]?.classList.remove('active');
+        steps[1]?.classList.add('active');
+        updateStatus('打包投票数据并签名...');
+        animateProgressBar(30, 60, 1500);
+        
+        const votePromise = triggerVote();
+        await sleep(1500);
+
+        // 步骤 3: 等待区块确认
+        steps[1]?.classList.remove('active');
+        steps[2]?.classList.add('active');
+        updateStatus('等待本地区块链确认...', true);
+        animateProgressBar(60, 95, 3000);
+
+        const result = await votePromise;
+        
+        // 清除提醒计时器
+        clearTimeout(busyHintTimer);
+        
+        // 成功处理
+        updateStatus('完成！正在获取审判结果...');
+        if (progressBar) progressBar.style.width = '100%';
+        await sleep(800);
+        
+        if (modal) modal.classList.add('hidden');
+        return result;
+    } catch (e) {
+        clearTimeout(busyHintTimer);
+        throw e;
+    }
+}
+
+function animateProgressBar(start, end, duration) {
+    const progressBar = document.getElementById('voting-progress-bar');
+    if (!progressBar) return;
+
+    const startTime = Date.now();
+    const range = end - start;
+
+    function step() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const current = start + (range * progress);
+        progressBar.style.width = `${current}%`;
+
+        if (progress < 1) {
+            requestAnimationFrame(step);
+        }
+    }
+
+    requestAnimationFrame(step);
 }
 
 async function handleRestart() {
@@ -430,7 +580,7 @@ async function showVotingAnimation(voteResult) {
     let notGuiltyCount = 0;
 
     for (const v of votes) {
-        await sleep(800);
+        await sleep(600);
         const voteDiv = document.createElement('div');
         voteDiv.className = `vote-item ${v.vote ? 'guilty' : 'not-guilty'}`;
         voteDiv.textContent = `${v.name || v.juror_id}: ${v.vote ? '有罪' : '无罪'}`;

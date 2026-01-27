@@ -6,18 +6,18 @@ import "../src/JuryVoting.sol";
 
 contract DeployScript is Script {
     function run() external {
-        // TODO: 实现部署脚本
-        // - 从环境变量读取私钥
-        // - 设置陪审员数量
-        // - 部署合约
-        // - 输出合约地址
-
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        uint256 totalJurors = 3; // MVP: 3个陪审员
+
+        address juror1 = vm.envAddress("JUROR_1");
+        address juror2 = vm.envAddress("JUROR_2");
+        address juror3 = vm.envAddress("JUROR_3");
+        address juror4 = vm.envAddress("JUROR_4");
+        address juror5 = vm.envAddress("JUROR_5");
+        address[5] memory jurors = [juror1, juror2, juror3, juror4, juror5];
 
         vm.startBroadcast(deployerPrivateKey);
 
-        JuryVoting voting = new JuryVoting(totalJurors);
+        JuryVoting voting = new JuryVoting(jurors);
 
         vm.stopBroadcast();
 

@@ -2,14 +2,14 @@
 Agent Manager
 
 Responsibilities:
-- Manage all JurorAgent instances
+- Manage all SpoonJurorAgent instances
 - Provide a unified chat interface
 - Collect votes and compute verdicts
 """
 
 from pathlib import Path
 
-from agents.juror_agent import JurorAgent
+from agents.spoon_juror_agent import SpoonJurorAgent
 
 
 class AgentManager:
@@ -22,7 +22,7 @@ class AgentManager:
         Args:
             juror_ids: Optional list of juror IDs to load.
         """
-        self.agents: dict[str, JurorAgent] = {}
+        self.agents: dict[str, SpoonJurorAgent] = {}
         self.juror_ids = juror_ids or []
 
     def load_all_jurors(self, content_path: str | None = None) -> None:
@@ -38,17 +38,17 @@ class AgentManager:
             self.juror_ids = [
                 path.stem
                 for path in sorted(content_dir.glob("*.json"))
-                if path.name != "_template.json"
+                if path.name != "_template.json" and not path.name.startswith("test_")
             ]
 
         for juror_id in self.juror_ids:
             if juror_id not in self.agents:
-                self.agents[juror_id] = JurorAgent(
-                    juror_id,
+                self.agents[juror_id] = SpoonJurorAgent(
+                    juror_id=juror_id,
                     content_path=str(content_dir)
                 )
 
-    def get_juror(self, juror_id: str) -> JurorAgent:
+    def get_juror(self, juror_id: str) -> SpoonJurorAgent:
         """
         Get a specific juror agent.
 
