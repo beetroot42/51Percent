@@ -1,0 +1,168 @@
+/* 区块浏览器专有样式 */
+.explorer-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    color: #eee;
+}
+
+.explorer-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.explorer-header h1 {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+.explorer-header .subtitle {
+    color: #4ecca3;
+    font-weight: 600;
+}
+
+/* 区块信息 */
+.block-info, .transaction-list, .transaction-details {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.block-info h2, .transaction-list h3, .transaction-details h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 15px;
+}
+
+.info-grid, .details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.info-item, .detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.label {
+    font-size: 13px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.value {
+    font-size: 15px;
+    word-break: break-all;
+}
+
+.monospace {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #4ecca3;
+}
+
+/* 交易列表 */
+.tx-list-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tx-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: #1a1a2e;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    transition: transform 0.2s;
+}
+
+.tx-card:hover {
+    transform: translateX(5px);
+    border-color: #4ecca3;
+}
+
+.tx-hash-display {
+    font-family: monospace;
+    color: #4ecca3;
+}
+
+.btn-view-tx {
+    padding: 8px 16px;
+    background: #4ecca3;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* 交易详情逻辑 */
+.success { color: #4ecca3; }
+.failed { color: #e94560; }
+
+.event-logs {
+    margin-top: 30px;
+    border-top: 2px solid #0f3460;
+    padding-top: 20px;
+}
+
+.log-item {
+    background: #1a1a2e;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    border: 1px solid #0f3460;
+}
+
+.log-header {
+    font-weight: bold;
+    color: #888;
+    margin-bottom: 10px;
+}
+
+.log-field {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+}
+
+.log-field .label {
+    min-width: 80px;
+}
+
+.explorer-footer {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.btn-secondary {
+    padding: 10px 20px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+    .tx-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .btn-view-tx {
+        width: 100%;
+    }
+}

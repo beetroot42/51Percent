@@ -156,6 +156,81 @@
             </div>
         </section>
 
+        <!-- 链上验证面板 -->
+        <div class="verification-panel hidden" id="verification-panel">
+            <div class="verification-header">
+                <span class="icon">🔍</span>
+                <h3>区块链验证</h3>
+                <span class="status" id="verification-status">验证中...</span>
+            </div>
+
+            <div class="verification-body">
+                <!-- 加载动画 -->
+                <div class="loading-spinner" id="verification-loading">
+                    <div class="spinner"></div>
+                    <p>正在从区块链获取验证数据...</p>
+                </div>
+
+                <!-- 验证内容 -->
+                <div class="verification-content hidden" id="verification-content">
+                    <!-- 链上数据卡片 -->
+                    <div class="chain-data-card">
+                        <h4>链上数据</h4>
+                        <div class="data-row">
+                            <span class="label">区块链</span>
+                            <span class="value" id="chain-name"></span>
+                        </div>
+                        <div class="data-row">
+                            <span class="label">区块号</span>
+                            <span class="value" id="block-number"></span>
+                        </div>
+                        <div class="data-row">
+                            <span class="label">区块时间</span>
+                            <span class="value" id="block-time"></span>
+                        </div>
+                        <div class="data-row">
+                            <span class="label">交易哈希</span>
+                            <span class="value tx-hash" id="tx-hash">
+                                <span id="tx-hash-value"></span>
+                                <button class="copy-btn" onclick="copyTxHash()" title="复制">📋</button>
+                            </span>
+                        </div>
+                        <div class="data-row">
+                            <span class="label">确认数</span>
+                            <span class="value" id="confirmations"></span>
+                        </div>
+                    </div>
+
+                    <!-- 投票结果对比 -->
+                    <div class="vote-comparison">
+                        <h4>投票结果验证</h4>
+                        <div class="comparison-row">
+                            <span class="label">有罪票数</span>
+                            <span class="chain-value" id="chain-guilty"></span>
+                            <span class="match-icon" id="guilty-match">✓</span>
+                        </div>
+                        <div class="comparison-row">
+                            <span class="label">无罪票数</span>
+                            <span class="chain-value" id="chain-not-guilty"></span>
+                            <span class="match-icon" id="not-guilty-match">✓</span>
+                        </div>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div class="verification-actions">
+                        <button class="btn-verify" onclick="reVerify()">
+                            <span class="icon">🔄</span>
+                            重新验证
+                        </button>
+                        <button class="btn-explorer" onclick="openBlockExplorer()">
+                            <span class="icon">🔗</span>
+                            查看区块详情
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 投票等待模态框 -->
         <div id="voting-modal" class="modal hidden">
             <div class="modal-content voting-modal-content">

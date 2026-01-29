@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>区块浏览器 - AI Trial Game</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/explorer.css">
+</head>
+<body>
+    <div class="explorer-container">
+        <header class="explorer-header">
+            <h1>🔗 区块浏览器</h1>
+            <p class="subtitle">Anvil Local Chain</p>
+        </header>
+
+        <!-- 区块信息 -->
+        <section class="block-info">
+            <h2>区块 #<span id="block-number">Loading...</span></h2>
+
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="label">区块哈希</span>
+                    <span class="value monospace" id="block-hash"></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">父区块哈希</span>
+                    <span class="value monospace" id="parent-hash"></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">时间戳</span>
+                    <span class="value" id="timestamp"></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">交易数量</span>
+                    <span class="value" id="tx-count"></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Gas 使用</span>
+                    <span class="value" id="gas-used"></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Gas 限制</span>
+                    <span class="value" id="gas-limit"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 交易列表 -->
+        <section class="transaction-list">
+            <h3>交易列表</h3>
+            <div id="tx-list" class="tx-list-content"></div>
+        </section>
+
+        <!-- 交易详情 -->
+        <section class="transaction-details hidden" id="tx-details-section">
+            <h3>交易详情</h3>
+            <div id="tx-details-content"></div>
+        </section>
+        
+        <div class="explorer-footer">
+            <button onclick="window.close()" class="btn-secondary">关闭窗口</button>
+        </div>
+    </div>
+
+    <!-- 离线或 CDN 加载 ethers.js -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script src="js/block-explorer.js"></script>
+</body>
+</html>

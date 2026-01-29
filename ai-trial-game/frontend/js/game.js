@@ -18,12 +18,32 @@ const gameState = {
 // ============ 初始化 ============
 
 async function initGame() {
+    // 检测链重置
+    const chainReset = await detectChainReset();
+    if (chainReset) {
+        showChainResetNotice();
+    }
+
     try {
         setLoading(true);
         const state = await getGameState();
         gameState.phase = state.phase || PHASES.INVESTIGATION;
         bindEvents();
-        await enterInvestigation();
+        
+        // 根据初始阶段显示 UI，避免在初始化时重新发送 setPhase
+        if (gameState.phase === PHASES.PERSUASION) {
+            updatePhaseIndicator('说服阶段');
+            showSection('persuasion-phase');
+            await showJurorList();
+        } else if (gameState.phase === PHASES.VERDICT) {
+            // 审判阶段通常需要完整流程，初始化时默认回退到调查或保持
+            await enterInvestigation();
+        } else {
+            // 默认调查阶段
+            updatePhaseIndicator('调查阶段');
+            showSection('investigation-phase');
+            await showDossier();
+        }
     } catch (e) {
         showError('无法连接服务器，请确保后端已启动');
     } finally {
@@ -136,6 +156,9 @@ async function enterVerdict() {
                 txInfo.classList.remove('hidden');
             }
         }
+
+        // 显示验证面板
+        await showVerificationPanel();
     } catch (error) {
         console.error("Voting error:", error);
         
@@ -524,6 +547,20 @@ async function handleSendMessage() {
         const response = await chatWithJuror(gameState.currentJuror, message);
         // 移除加载消息
         document.getElementById(loadingId)?.remove();
+
+        // --- ReAct Visualization ---
+        if (response.tool_actions && response.tool_actions.length > 0) {
+            for (const action of response.tool_actions) {
+                await renderToolAction(action);
+                // Record in history as a special type if needed, or just skip for now as history re-render doesn't support it yet
+            }
+        }
+
+        if (response.has_voted) {
+            markJurorAsVoted(gameState.currentJuror);
+        }
+        // ---------------------------
+
         // 显示回复
         const reply = response.reply || '...';
         appendMessage('juror', reply);
@@ -625,6 +662,325 @@ function showVerdict(verdict) {
     resultEl?.classList.remove('hidden');
 }
 
+// ============ 链上验证 ============
+
+/**
+ * 检测链重置
+ */
+async function detectChainReset() {
+    try {
+        // 获取创世区块信息
+        const { genesisBlockHash, chainId } = await request('/api/blockchain/genesis');
+
+        // 从 localStorage 读取上次保存的创世区块哈希
+        const storageKey = `genesis_${chainId}`;
+        const savedGenesis = localStorage.getItem(storageKey);
+
+        if (!savedGenesis) {
+            // 首次启动，保存
+            localStorage.setItem(storageKey, genesisBlockHash);
+            return false;
+        }
+
+        if (savedGenesis !== genesisBlockHash) {
+            // 链已重置
+            console.warn('Chain reset detected!');
+            // 更新哈希
+            localStorage.setItem(storageKey, genesisBlockHash);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error('Failed to detect chain reset:', error);
+        return false;
+    }
+}
+
+/**
+ * 显示链重置提示
+ */
+function showChainResetNotice() {
+    const notice = document.createElement('div');
+    notice.className = 'chain-reset-notice';
+    notice.innerHTML = `
+        <span class="icon">⚠️</span>
+        <p>检测到本地链已重置，历史记录已清理</p>
+    `;
+    document.body.appendChild(notice);
+
+    // 4秒后自动关闭
+    setTimeout(() => {
+        notice.style.opacity = '0';
+        notice.style.transform = 'translateX(100px)';
+        setTimeout(() => notice.remove(), 400);
+    }, 4000);
+}
+
+/**
+ * 显示链上验证面板
+ */
+async function showVerificationPanel() {
+    const panel = document.getElementById('verification-panel');
+    const loading = document.getElementById('verification-loading');
+    const content = document.getElementById('verification-content');
+    const status = document.getElementById('verification-status');
+
+    if (!panel) return;
+
+    // 显示面板
+    panel.classList.remove('hidden');
+    loading.classList.remove('hidden');
+    content.classList.add('hidden');
+    status.textContent = '验证中...';
+    status.className = 'status verifying';
+
+    try {
+        // 调用验证 API
+        const verificationData = await request('/api/votes/verification');
+
+        // 隐藏加载，显示内容
+        loading.classList.add('hidden');
+        content.classList.remove('hidden');
+
+        if (verificationData.verified) {
+            status.textContent = '✓ 已验证';
+            status.className = 'status verified';
+        } else {
+            status.textContent = '⚠️ 验证失败';
+            status.className = 'status failed';
+        }
+
+        // 填充链上数据
+        fillChainData(verificationData.chainData);
+        fillVoteComparison(verificationData.voteData);
+
+        // 保存到全局变量
+        window.currentVerification = verificationData;
+
+    } catch (error) {
+        console.error('Verification failed:', error);
+        loading.classList.add('hidden');
+        status.textContent = '⚠️ 验证失败';
+        status.className = 'status failed';
+
+        // 显示错误信息
+        content.classList.remove('hidden');
+        content.innerHTML = `
+            <div class="error-message">
+                <p>无法获取链上验证数据</p>
+                <p class="error-detail">${error.message}</p>
+                <button class="btn-retry" onclick="showVerificationPanel()">重试</button>
+            </div>
+        `;
+    }
+}
+
+/**
+ * 填充链上数据
+ */
+function fillChainData(chainData) {
+    document.getElementById('chain-name').textContent = chainData.chainName;
+    document.getElementById('block-number').textContent = `#${chainData.blockNumber}`;
+
+    // 格式化时间戳
+    const date = new Date(chainData.timestamp * 1000);
+    document.getElementById('block-time').textContent = date.toLocaleString('zh-CN');
+
+    // 显示交易哈希（缩短显示）
+    const hash = chainData.txHash;
+    const shortHash = `${hash.slice(0, 10)}...${hash.slice(-8)}`;
+    const hashEl = document.getElementById('tx-hash-value');
+    if (hashEl) {
+        hashEl.textContent = shortHash;
+        hashEl.title = hash;
+    }
+    window.currentTxHash = hash;
+
+    document.getElementById('confirmations').textContent = chainData.confirmations;
+}
+
+/**
+ * 填充投票结果对比
+ */
+function fillVoteComparison(voteData) {
+    document.getElementById('chain-guilty').textContent = voteData.guiltyVotes;
+    document.getElementById('chain-not-guilty').textContent = voteData.notGuiltyVotes;
+    
+    // 这里可以添加与本地结果对比的逻辑，目前先默认显示 ✓
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============ ReAct Visualization Helpers ============
+
+async function renderToolAction(action) {
+    const chatContainer = document.getElementById('chat-messages');
+    if (!chatContainer) return;
+
+    const actionEl = document.createElement('div');
+    actionEl.className = 'tool-action';
+
+    // Typewriter effect helper
+    const escapeHtml = (text) => {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    };
+
+    if (action.tool === 'lookup_evidence') {
+        const evidenceName = getEvidenceName(action.input?.evidence_id);
+        actionEl.innerHTML = `
+            <div class="tool-narrative">
+                <em>${escapeHtml(action.narrative || '正在查阅资料...')}</em>
+            </div>
+            <div class="evidence-reference">
+                <span class="evidence-icon">📄</span>
+                <span class="evidence-name">${escapeHtml(evidenceName)}</span>
+            </div>
+        `;
+    } else if (action.tool === 'cast_vote') {
+        const guilty = action.input?.guilty;
+        const voteType = guilty ? '有罪' : '无罪';
+        const voteClass = guilty ? 'vote-guilty' : 'vote-not-guilty';
+        actionEl.innerHTML = `
+            <div class="tool-narrative">
+                <em>${escapeHtml(action.narrative || '做出决定...')}</em>
+            </div>
+            <div class="vote-event ${voteClass}">
+                <span class="vote-icon">⚖️</span>
+                <span class="vote-result">投票: ${voteType}</span>
+            </div>
+        `;
+    } else {
+        // Generic tool
+        actionEl.innerHTML = `
+            <div class="tool-narrative">
+                <em>${escapeHtml(action.narrative || '思考中...')}</em>
+            </div>
+            <div class="evidence-reference">
+                <span class="evidence-icon">⚙️</span>
+                <span class="evidence-name">${escapeHtml(action.tool)}</span>
+            </div>
+        `;
+    }
+
+    chatContainer.appendChild(actionEl);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    // Simulate "Acting" time
+    await sleep(800);
+}
+
+function getEvidenceName(evidenceId) {
+    if (!evidenceId) return '未知证据';
+    // Try to find in gameState
+    const evidence = gameState.evidenceList?.find(e => e.id === evidenceId);
+    if (evidence) return evidence.name || evidenceId;
+    
+    // Fallback dictionary
+    const names = {
+        'chat_history': '聊天记录',
+        'log_injection': '注入日志',
+        'safety_report': '安全报告',
+        'dossier': '案件卷宗'
+    };
+    return names[evidenceId] || evidenceId;
+}
+
+function markJurorAsVoted(jurorId) {
+    const card = document.querySelector(`.juror-card[data-id="${jurorId}"]`);
+    if (card) {
+        card.classList.add('has-voted');
+        if (!card.querySelector('.voted-badge')) {
+            const badge = document.createElement('span');
+            badge.className = 'voted-badge';
+            badge.textContent = '已投票';
+            card.appendChild(badge);
+        }
+    }
+}
+
+function copyTxHash() {
+    const txHash = window.currentTxHash;
+    if (!txHash) return;
+
+    navigator.clipboard.writeText(txHash)
+        .then(() => {
+            const btn = document.querySelector('.copy-btn');
+            const originalText = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        })
+        .catch(err => {
+            console.error('Failed to copy:', err);
+            showError('复制失败');
+        });
+}
+
+/**
+ * 重新验证
+ */
+async function reVerify() {
+    const txHash = window.currentTxHash;
+    if (!txHash) return;
+
+    const btn = document.querySelector('.btn-verify');
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-small"></span> 验证中...';
+
+    try {
+        const result = await request('/api/votes/verify', {
+            method: 'POST',
+            body: JSON.stringify({ txHash })
+        });
+
+        if (result.verified) {
+            showError('✓ 验证成功！链上数据一致');
+        } else {
+            showError(`⚠️ 验证失败: ${result.mismatches.join(', ')}`);
+        }
+    } catch (error) {
+        showError(`验证失败: ${error.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+}
+
+/**
+ * 打开区块浏览器
+ */
+function openBlockExplorer() {
+    const verification = window.currentVerification;
+    if (!verification) return;
+
+    const { chainData } = verification;
+
+    // 如果是本地链，打开自定义浏览器
+    if (chainData.chainId === 31337) {
+        window.open(
+            `block-explorer.html?block=${chainData.blockNumber}&tx=${chainData.txHash}`,
+            '_blank'
+        );
+    }
+    // 如果是 Sepolia，跳转到 Etherscan
+    else if (chainData.chainId === 11155111) {
+        window.open(
+            `https://sepolia.etherscan.io/tx/${chainData.txHash}`,
+            '_blank'
+        );
+    }
+    else {
+        showError('不支持的链类型');
+    }
+}
+
 // ============ 工具函数 ============
 
 function showSection(sectionId) {
@@ -654,10 +1010,6 @@ function showError(message) {
 function formatContent(text) {
     if (!text) return '';
     return text.replace(/\n/g, '<br>');
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ============ 启动 ============

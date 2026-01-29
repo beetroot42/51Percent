@@ -69,3 +69,40 @@ ai-trial-game/
 ## Troubleshooting
 
 See `TROUBLESHOOTING.md` for voting stalls, spoon-core import errors, and port conflicts.
+
+---
+
+## Changelog
+
+### v0.2.0 - ReAct Agent Upgrade (2026-01-29)
+
+Upgraded `SpoonJurorAgent` from dialog-only to full ReAct (Reason-Act) pattern with tool calling.
+
+**New Features:**
+- **Evidence Lookup Tool** (`lookup_evidence`) - Agents can autonomously retrieve case evidence
+- **On-chain Voting Tool** (`cast_vote`) - Agents can cast blockchain votes during dialogue
+- **Tool Action Visualization** - Frontend displays agent tool usage narratively
+
+**Backend Changes:**
+- `backend/tools/evidence_tool.py` - New `EvidenceLookupTool`
+- `backend/agents/spoon_juror_agent.py` - ReAct loop with `tool_choices=AUTO`, `max_steps=3`
+- `backend/services/agent_manager.py` - Voting config injection with `juror_index`
+- `backend/main.py` - New `ToolAction` model, `tool_actions`/`has_voted` in API response
+
+**Frontend Changes:**
+- `frontend/js/game.js` - Tool action rendering with XSS protection
+
+**Tests:**
+- `backend/tests/test_evidence_tool.py` - Evidence tool unit tests
+- `backend/tests/test_react_agent.py` - ReAct loop and AgentManager tests
+
+**Reports:**
+- `REPORT_REACT_BACKEND.md` - Backend implementation details
+- `REPORT_REACT_VISUALIZATION.md` - Frontend visualization details
+
+### v0.1.0 - Initial Release
+
+- Three-phase gameplay: Investigation → Persuasion → Verdict
+- 5 AI jurors with personality-driven dialogue
+- On-chain voting via Solidity contract
+- spoon-core framework integration

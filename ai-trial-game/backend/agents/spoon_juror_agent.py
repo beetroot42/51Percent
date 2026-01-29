@@ -20,6 +20,9 @@ from spoon_ai.chat import ChatBot, Memory
 from spoon_ai.tools import ToolManager
 from spoon_ai.schema import AgentState, ToolChoice
 
+from tools.evidence_tool import EvidenceLookupTool
+from tools.spoon_voting_tool import CastVoteTool
+
 
 @dataclass
 class JurorConfig:
@@ -78,8 +81,8 @@ class SpoonJurorAgent(ToolCallAgent):
     """
 
     # Override ToolCallAgent defaults
-    tool_choices: Any = Field(default=ToolChoice.NONE)  # No tool calls in dialogue mode
-    max_steps: int = Field(default=1)  # Single turn per chat
+    tool_choices: Any = Field(default=ToolChoice.AUTO)  # Allow tool calls
+    max_steps: int = Field(default=3)  # Allow tool loop
 
     # Business state
     juror_id: str = Field(default="")
@@ -97,6 +100,7 @@ class SpoonJurorAgent(ToolCallAgent):
         juror_id: str,
         content_path: str = "content/jurors",
         llm: Optional[ChatBot] = None,
+        voting_config: Optional[dict] = None,
         **kwargs
     ):
         """
@@ -122,6 +126,19 @@ class SpoonJurorAgent(ToolCallAgent):
         # Build system prompt (pass initial_stance before self is initialized)
         system_prompt = self._build_roleplay_prompt(config, stance_value=config.initial_stance)
 
+        # Build tool list
+        content_base_path = Path(content_path)
+        if content_base_path.name == "jurors":
+            content_base_path = content_base_path.parent
+        tools_list = [EvidenceLookupTool(content_path=str(content_base_path))]
+        self._juror_index: Optional[int] = None
+        if voting_config:
+            voting_config = dict(voting_config)
+            if "juror_index" in voting_config:
+                self._juror_index = voting_config.pop("juror_index")
+            tools_list.append(CastVoteTool(**voting_config))
+        available_tools = ToolManager(tools_list)
+
         # Initialize base agent
         super().__init__(
             name=f"juror_{juror_id}",
@@ -129,7 +146,7 @@ class SpoonJurorAgent(ToolCallAgent):
             system_prompt=system_prompt,
             llm=llm,
             memory=Memory(),
-            available_tools=ToolManager([]),
+            available_tools=available_tools,
             **kwargs
         )
 
@@ -216,6 +233,17 @@ Core question: Should an AI robot injected with malicious instructions be found 
 - Keep responses concise (2-4 sentences typically)
 - Be natural and conversational
 - The player is trying to persuade you - engage with their arguments
+
+## Available Tools
+You can use the following tools to help your judgment:
+- lookup_evidence: Read case evidence (chat history, injection logs, safety report, dossier)
+- cast_vote: When you reach a final decision, cast your on-chain vote (guilty=true means guilty, false means not guilty)
+## Tool Usage Rules
+1. When the player mentions a piece of evidence or you need to verify a fact, proactively call lookup_evidence
+2. Only call cast_vote once you truly decide (a vote cannot be changed)
+3. Do not look up evidence every turn, only when needed
+4. Provide sufficient reasoning before voting
+5. When calling tools, narrate what you are doing (e.g., "Let me check that safety report...")
 """
 
     def _get_stance_description_for_value(self, stance_value: int) -> str:
@@ -246,7 +274,9 @@ Core question: Should an AI robot injected with malicious instructions be found 
             {
                 "reply": str,
                 "juror_id": str,
-                "stance_label": str
+                "stance_label": str,
+                "tool_actions": list[dict],
+                "has_voted": bool
             }
         """
         # Add user message to memory
@@ -255,23 +285,55 @@ Core question: Should an AI robot injected with malicious instructions be found 
         # Refresh system prompt (stance may have changed)
         self.system_prompt = self._build_roleplay_prompt(self.juror_config)
 
-        # Call LLM
-        response = await self.llm.ask(
-            messages=self.memory.messages,
-            system_msg=self.system_prompt
-        )
+        tool_actions: list[dict] = []
+        has_voted = False
+        final_reply: str | None = None
 
-        # Add assistant reply
-        await self.add_message("assistant", response)
+        for _ in range(self.max_steps):
+            response = await self._ask_with_tools()
+            reply_text, tool_calls = self._extract_tool_calls(response)
+
+            if tool_calls:
+                if reply_text:
+                    await self.add_message("assistant", reply_text)
+
+                for call in tool_calls:
+                    tool_name, tool_args, narrative = self._parse_tool_call(call)
+                    exec_args = dict(tool_args)
+                    exec_args.pop("narrative", None)
+                    if tool_name == "cast_vote" and "juror_index" not in exec_args:
+                        if self._juror_index is not None:
+                            exec_args["juror_index"] = self._juror_index
+
+                    tool_result = await self._execute_tool(tool_name, exec_args)
+                    result_summary = self._summarize_tool_result(tool_result)
+                    tool_actions.append({
+                        "tool": tool_name,
+                        "input": exec_args,
+                        "result_summary": result_summary,
+                        "narrative": narrative,
+                    })
+                    if tool_name == "cast_vote":
+                        has_voted = True
+
+                    await self.add_message("tool", tool_result)
+                continue
+
+            final_reply = reply_text or str(response)
+            await self.add_message("assistant", final_reply)
+            break
+
+        if final_reply is None:
+            final_reply = "Let me think a bit more about this case."
 
         # Parse topic tags
-        topics, impact = self._parse_topics(response)
+        topics, impact = self._parse_topics(final_reply)
 
         # Update stance
         self._update_stance(topics, impact)
 
         # Clean reply (remove tags)
-        clean_reply = self._clean_reply(response)
+        clean_reply = self._clean_reply(final_reply)
 
         # Record conversation history
         self.conversation_history.append(ConversationTurn(
@@ -282,21 +344,10 @@ Core question: Should an AI robot injected with malicious instructions be found 
         return {
             "reply": clean_reply,
             "juror_id": self.juror_id,
-            "stance_label": self._get_stance_label()
+            "stance_label": self._get_stance_label(),
+            "tool_actions": tool_actions,
+            "has_voted": has_voted
         }
-
-    async def think(self) -> bool:
-        """
-        Think step: dialogue only, no tools.
-
-        Overrides base method to disable tool selection.
-        """
-        # Dialogue mode does not require tools
-        return False
-
-    async def act(self) -> str:
-        """Dialogue mode does not execute actions."""
-        return ""
 
     def _parse_topics(self, response: str) -> tuple[list[str], str]:
         """Parse topic tags from agent reply."""
@@ -337,6 +388,89 @@ Core question: Should an AI robot injected with malicious instructions be found 
         """Clean reply by removing hidden tags."""
         cleaned = re.sub(r'<!-- ANALYSIS:.*?-->', '', response, flags=re.DOTALL)
         return cleaned.strip()
+
+    async def _ask_with_tools(self) -> Any:
+        """Call LLM with tool support when available."""
+        if hasattr(self.llm, "ask_with_tools"):
+            return await self.llm.ask_with_tools(
+                messages=self.memory.messages,
+                system_msg=self.system_prompt,
+                tools=self.available_tools,
+            )
+        return await self.llm.ask(messages=self.memory.messages, system_msg=self.system_prompt)
+
+    def _extract_tool_calls(self, response: Any) -> tuple[str, list[dict]]:
+        """Normalize LLM response into (content, tool_calls)."""
+        if isinstance(response, tuple) and len(response) == 2:
+            content, tool_calls = response
+            return str(content) if content is not None else "", list(tool_calls or [])
+        if isinstance(response, dict):
+            content = response.get("content") or response.get("reply") or ""
+            tool_calls = response.get("tool_calls") or []
+            return str(content) if content is not None else "", list(tool_calls or [])
+        content = getattr(response, "content", None)
+        tool_calls = getattr(response, "tool_calls", None)
+        if content is not None or tool_calls is not None:
+            return str(content) if content is not None else "", list(tool_calls or [])
+        if isinstance(response, str):
+            return response, []
+        return str(response), []
+
+    def _parse_tool_call(self, call: Any) -> tuple[str, dict, str]:
+        """Extract tool name, args, and narrative from a tool call."""
+        if isinstance(call, dict):
+            func = call.get("function") or {}
+            tool_name = call.get("name") or func.get("name") or ""
+            raw_args = call.get("arguments") or func.get("arguments") or call.get("input") or {}
+        else:
+            tool_name = getattr(call, "name", "") or getattr(getattr(call, "function", None), "name", "")
+            raw_args = getattr(call, "arguments", None) or getattr(getattr(call, "function", None), "arguments", None) or {}
+
+        if isinstance(raw_args, str):
+            try:
+                tool_args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                tool_args = {}
+        elif isinstance(raw_args, dict):
+            tool_args = dict(raw_args)
+        else:
+            tool_args = {}
+
+        narrative = ""
+        if isinstance(tool_args, dict) and "narrative" in tool_args:
+            narrative = str(tool_args.get("narrative", ""))
+
+        return tool_name, tool_args, narrative
+
+    async def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
+        """Execute tool by name and return result text."""
+        tool = None
+        if hasattr(self.available_tools, "get_tool"):
+            tool = self.available_tools.get_tool(tool_name)
+        elif hasattr(self.available_tools, "tools"):
+            for candidate in self.available_tools.tools:
+                if getattr(candidate, "name", "") == tool_name:
+                    tool = candidate
+                    break
+
+        if tool is None:
+            return f"Tool not available: {tool_name}"
+
+        try:
+            result = tool.execute(**tool_args)
+            if hasattr(result, "__await__"):
+                result = await result
+            return str(result)
+        except Exception as exc:
+            return f"Tool error: {exc}"
+
+    def _summarize_tool_result(self, tool_result: str, limit: int = 200) -> str:
+        """Short summary for tool action log."""
+        if not tool_result:
+            return ""
+        if len(tool_result) <= limit:
+            return tool_result
+        return tool_result[:limit].rstrip() + "..."
 
     def _get_stance_label(self) -> str:
         """Return a vague stance label (player-facing)."""

@@ -51,6 +51,7 @@ def _install_spoon_ai_stubs(monkeypatch):
 
     class ToolChoice:
         NONE = "none"
+        AUTO = "auto"
 
     class ToolCallAgent:
         def __init__(self, name, description, system_prompt, llm, memory, available_tools, **kwargs):

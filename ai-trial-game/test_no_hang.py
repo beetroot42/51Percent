@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 # Move to project directory
-os.chdir('/mnt/d/51-DEMO/ai-trial-game')
+os.chdir('D:\\51-DEMO\\ai-trial-game')
 sys.path.insert(0, 'backend')
 
 print("=" * 60)

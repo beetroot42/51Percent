@@ -15,15 +15,17 @@ from agents.spoon_juror_agent import SpoonJurorAgent
 class AgentManager:
     """Manage multiple juror agents for a single game session."""
 
-    def __init__(self, juror_ids: list[str] | None = None):
+    def __init__(self, juror_ids: list[str] | None = None, voting_config: dict | None = None):
         """
         Initialize agent manager.
 
         Args:
             juror_ids: Optional list of juror IDs to load.
+            voting_config: Optional voting tool config for juror tool calls.
         """
         self.agents: dict[str, SpoonJurorAgent] = {}
         self.juror_ids = juror_ids or []
+        self.voting_config = voting_config
 
     def load_all_jurors(self, content_path: str | None = None) -> None:
         """
@@ -41,11 +43,16 @@ class AgentManager:
                 if path.name != "_template.json" and not path.name.startswith("test_")
             ]
 
-        for juror_id in self.juror_ids:
+        for index, juror_id in enumerate(self.juror_ids):
             if juror_id not in self.agents:
+                agent_voting_config = None
+                if self.voting_config:
+                    agent_voting_config = dict(self.voting_config)
+                    agent_voting_config["juror_index"] = index
                 self.agents[juror_id] = SpoonJurorAgent(
                     juror_id=juror_id,
-                    content_path=str(content_dir)
+                    content_path=str(content_dir),
+                    voting_config=agent_voting_config
                 )
 
     def get_juror(self, juror_id: str) -> SpoonJurorAgent:

@@ -73,8 +73,10 @@ class VotingTool:
         Initialize Web3 connection and contract instance
         """
         from web3 import Web3
+        from web3.providers import HTTPProvider
 
-        self.web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+        provider = HTTPProvider(self.rpc_url, request_kwargs={"timeout": 10})
+        self.web3 = Web3(provider)
         self._log("web3 provider initialized")
 
         abi = [
@@ -86,6 +88,8 @@ class VotingTool:
             {"inputs": [], "name": "notGuiltyVotes", "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
             {"inputs": [], "name": "votingClosed", "outputs": [{"name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
             {"inputs": [{"name": "", "type": "address"}], "name": "isJuror", "outputs": [{"name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
+            {"anonymous": False, "inputs": [{"indexed": True, "name": "juror", "type": "address"}, {"indexed": False, "name": "guilty", "type": "bool"}], "name": "Voted", "type": "event"},
+            {"anonymous": False, "inputs": [{"indexed": False, "name": "verdict", "type": "string"}, {"indexed": False, "name": "guiltyVotes", "type": "uint256"}, {"indexed": False, "name": "notGuiltyVotes", "type": "uint256"}], "name": "VotingClosed", "type": "event"},
         ]
 
         self.contract = self.web3.eth.contract(

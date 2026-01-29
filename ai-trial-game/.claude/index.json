@@ -1,0 +1,111 @@
+{
+  "timestamp": "2026-01-28T11:54:54+08:00",
+  "projectName": "ai-trial-game",
+  "projectPath": "D:\\51-DEMO\\ai-trial-game",
+  "scanVersion": "1.0.0",
+  "coverage": {
+    "totalFiles": 45,
+    "scannedFiles": 28,
+    "coveragePercent": 62,
+    "ignoredDirs": ["venv", "contracts/lib", "contracts/out", "contracts/cache", ".pytest_cache"],
+    "truncated": false
+  },
+  "modules": [
+    {
+      "name": "backend",
+      "path": "backend/",
+      "language": "Python",
+      "entryPoint": "main.py",
+      "hasTests": true,
+      "testDir": "tests/",
+      "configFiles": ["pytest.ini", ".env"],
+      "keyFiles": [
+        "main.py",
+        "agents/spoon_juror_agent.py",
+        "agents/juror_agent.py",
+        "services/agent_manager.py",
+        "tools/voting_tool.py"
+      ],
+      "coverage": {
+        "scannedFiles": 12,
+        "gaps": []
+      }
+    },
+    {
+      "name": "contracts",
+      "path": "contracts/",
+      "language": "Solidity",
+      "entryPoint": "src/JuryVoting.sol",
+      "hasTests": true,
+      "testDir": "test/",
+      "configFiles": ["foundry.toml"],
+      "keyFiles": [
+        "src/JuryVoting.sol",
+        "script/Deploy.s.sol",
+        "test/JuryVoting.t.sol"
+      ],
+      "coverage": {
+        "scannedFiles": 3,
+        "gaps": []
+      }
+    },
+    {
+      "name": "frontend",
+      "path": "frontend/",
+      "language": "JavaScript",
+      "entryPoint": "index.html",
+      "hasTests": false,
+      "testDir": null,
+      "configFiles": [],
+      "keyFiles": [
+        "index.html",
+        "js/game.js",
+        "js/api.js",
+        "js/dialogue.js"
+      ],
+      "coverage": {
+        "scannedFiles": 5,
+        "gaps": ["缺少自动化测试"]
+      }
+    },
+    {
+      "name": "content",
+      "path": "content/",
+      "language": "JSON",
+      "entryPoint": null,
+      "hasTests": false,
+      "testDir": null,
+      "configFiles": [],
+      "keyFiles": [
+        "case/dossier.json",
+        "jurors/juror_chen.json",
+        "jurors/juror_liu.json",
+        "jurors/juror_wang.json",
+        "jurors/juror_zhang.json",
+        "jurors/juror_li.json"
+      ],
+      "coverage": {
+        "scannedFiles": 8,
+        "gaps": []
+      }
+    }
+  ],
+  "gaps": [
+    {
+      "module": "frontend",
+      "type": "missing_tests",
+      "description": "前端缺少自动化测试"
+    }
+  ],
+  "recommendations": [
+    "建议为 frontend 添加 E2E 测试 (Playwright/Cypress)",
+    "建议添加 requirements.txt 到 backend 目录"
+  ],
+  "claudeMdFiles": [
+    "CLAUDE.md",
+    "backend/CLAUDE.md",
+    "contracts/CLAUDE.md",
+    "frontend/CLAUDE.md",
+    "content/CLAUDE.md"
+  ]
+}

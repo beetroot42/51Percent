@@ -4,9 +4,13 @@ AI Trial Game - Backend API
 Provides REST interface using FastAPI.
 """
 
+import asyncio
 import json
+import logging
 import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 # Windows encoding guard: keep UTF-8 output stable
@@ -28,12 +32,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.agent_manager import AgentManager
 from tools.voting_tool import VotingTool
 
 app = FastAPI(title="AI Trial Game", version="0.1.0")
+logger = logging.getLogger(__name__)
+_verification_executor = ThreadPoolExecutor(max_workers=2)
 
 # CORS configuration (allow frontend access)
 app.add_middleware(
@@ -52,10 +58,20 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class ToolAction(BaseModel):
+    """Tool action record"""
+    tool: str
+    input: dict
+    result_summary: str = ""
+    narrative: str = ""
+
+
 class ChatResponse(BaseModel):
     """Chat response"""
     reply: str
     juror_id: str
+    tool_actions: list[ToolAction] = Field(default_factory=list)
+    has_voted: bool = False
 
 
 class VoteResponse(BaseModel):
@@ -64,6 +80,10 @@ class VoteResponse(BaseModel):
     not_guilty_votes: int
     verdict: str
     tx_hashes: list[str]
+
+class VerifyVoteRequest(BaseModel):
+    """Verify vote request"""
+    txHash: str
 
 
 class GameState(BaseModel):
@@ -81,9 +101,6 @@ JUROR_CONTENT = CONTENT_ROOT / "jurors"
 
 game_phase = "investigation"
 
-agent_manager = AgentManager()
-agent_manager.load_all_jurors(content_path=str(JUROR_CONTENT))
-
 _contract_address = os.getenv(
     "JURY_VOTING_CONTRACT_ADDRESS",
     "0x5FbDB2315678afecb367f032d93F642f64180aa3"
@@ -93,6 +110,15 @@ _private_keys = os.getenv("JURY_VOTING_PRIVATE_KEYS", "")
 _private_key_list = [key.strip() for key in _private_keys.split(",") if key.strip()]
 _tx_timeout = int(os.getenv("VOTING_TX_TIMEOUT", "120"))
 _tx_confirmations = int(os.getenv("VOTING_TX_CONFIRMATIONS", "1"))
+
+_voting_config = {
+    "contract_address": _contract_address,
+    "rpc_url": _rpc_url,
+    "private_keys": _private_key_list,
+} if _contract_address and _private_key_list else None
+
+agent_manager = AgentManager(voting_config=_voting_config)
+agent_manager.load_all_jurors(content_path=str(JUROR_CONTENT))
 voting_tool = VotingTool(
     contract_address=_contract_address,
     rpc_url=_rpc_url,
@@ -101,11 +127,60 @@ voting_tool = VotingTool(
     tx_confirmations=_tx_confirmations
 ) if _contract_address else None
 
+last_vote_tx_hash: str | None = None
 
+def get_last_vote_tx_hash() -> str | None:
+    """Get the most recent vote transaction hash."""
+    return last_vote_tx_hash
+
+def get_chain_name(chain_id: int) -> str:
+    """Map chain id to friendly name."""
+    chain_names = {
+        31337: "Anvil Local",
+        11155111: "Sepolia Testnet",
+        1: "Ethereum Mainnet",
+    }
+    return chain_names.get(chain_id, f"Unknown Chain ({chain_id})")
+
+
+def _fetch_verification_data(tx_hash: str) -> dict:
+    """Synchronous helper for Web3 calls."""
+    receipt = voting_tool.web3.eth.get_transaction_receipt(tx_hash)
+    block = voting_tool.web3.eth.get_block(receipt.blockNumber)
+    vote_state = voting_tool.get_vote_state()
+    chain_id = voting_tool.web3.eth.chain_id
+    latest_block = voting_tool.web3.eth.block_number
+    confirmations = max(0, latest_block - receipt.blockNumber)
+
+    return {
+        "verified": True,
+        "chainData": {
+            "chainId": chain_id,
+            "chainName": get_chain_name(chain_id),
+            "blockNumber": receipt.blockNumber,
+            "blockHash": block.hash.hex(),
+            "timestamp": block.timestamp,
+            "txHash": tx_hash,
+            "txStatus": receipt.status,
+            "confirmations": confirmations,
+        },
+        "voteData": {
+            "guiltyVotes": vote_state.guilty_votes,
+            "notGuiltyVotes": vote_state.not_guilty_votes,
+            "verdict": vote_state.verdict,
+        },
+        "contractAddress": voting_tool.contract_address,
+    }
 # ============ API Endpoints ============
 
 @app.get("/")
-async def root():
+async def serve_root():
+    """Serve the root page (frontend)"""
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/api/health")
+async def health_check():
     """Health check"""
     return {"status": "ok", "game": "AI Trial"}
 
@@ -212,7 +287,9 @@ async def chat_with_juror(juror_id: str, request: ChatRequest):
 
     return ChatResponse(
         reply=response["reply"],
-        juror_id=response["juror_id"]
+        juror_id=response["juror_id"],
+        tool_actions=response.get("tool_actions", []),
+        has_voted=response.get("has_voted", False)
     )
 
 
@@ -239,6 +316,8 @@ async def trigger_vote():
     }
     try:
         tx_hashes = voting_tool.cast_all_votes(votes)
+        global last_vote_tx_hash
+        last_vote_tx_hash = tx_hashes[0] if tx_hashes else None
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Voting failed: {exc}") from exc
 
@@ -248,6 +327,91 @@ async def trigger_vote():
         verdict=vote_result["verdict"],
         tx_hashes=tx_hashes
     )
+
+
+@app.get("/api/votes/verification")
+async def get_vote_verification():
+    """
+    Get verification info for the most recent vote transaction.
+    """
+    if not voting_tool:
+        raise HTTPException(status_code=503, detail="Voting tool not configured")
+
+    tx_hash = get_last_vote_tx_hash()
+    if not tx_hash:
+        raise HTTPException(status_code=404, detail="No vote record found")
+
+    try:
+        logger.info("verification request started tx_hash=%s", tx_hash)
+        start_time = time.monotonic()
+        loop = asyncio.get_running_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_verification_executor, _fetch_verification_data, tx_hash),
+            timeout=10.0,
+        )
+        logger.info("verification request finished duration=%.2fs", time.monotonic() - start_time)
+        return result
+    except asyncio.TimeoutError as exc:
+        logger.warning("verification request timed out tx_hash=%s", tx_hash)
+        raise HTTPException(status_code=504, detail="Blockchain query timeout") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Verification failed: {exc}") from exc
+
+
+@app.post("/api/votes/verify")
+async def verify_vote(request: VerifyVoteRequest):
+    """
+    Re-verify vote results by tx hash.
+    """
+    if not voting_tool:
+        raise HTTPException(status_code=503, detail="Voting tool not configured")
+
+    tx_hash = request.txHash
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail="txHash is required")
+
+    try:
+        receipt = voting_tool.web3.eth.get_transaction_receipt(tx_hash)
+        logs = voting_tool.contract.events.VotingClosed().process_receipt(receipt)
+        if not logs:
+            raise HTTPException(status_code=404, detail="No VotingClosed event found")
+
+        event_data = logs[0]["args"]
+        vote_state = voting_tool.get_vote_state()
+
+        mismatches = []
+        if event_data["guiltyVotes"] != vote_state.guilty_votes:
+            mismatches.append(
+                f"Guilty votes mismatch: event={event_data['guiltyVotes']}, state={vote_state.guilty_votes}"
+            )
+        if event_data["notGuiltyVotes"] != vote_state.not_guilty_votes:
+            mismatches.append(
+                f"Not guilty votes mismatch: event={event_data['notGuiltyVotes']}, state={vote_state.not_guilty_votes}"
+            )
+
+        return {"verified": len(mismatches) == 0, "mismatches": mismatches}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Verification failed: {exc}") from exc
+
+
+@app.get("/api/blockchain/genesis")
+async def get_genesis_block():
+    """
+    Get genesis block hash for chain reset detection.
+    """
+    if not voting_tool:
+        raise HTTPException(status_code=503, detail="Voting tool not configured")
+
+    try:
+        genesis_block = voting_tool.web3.eth.get_block(0)
+        return {
+            "genesisBlockHash": genesis_block.hash.hex(),
+            "chainId": voting_tool.web3.eth.chain_id,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Failed to get genesis block: {exc}") from exc
 
 
 @app.post("/reset")
