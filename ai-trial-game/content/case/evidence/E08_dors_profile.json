@@ -1,0 +1,14 @@
+{
+  "id": "E8",
+  "name": "铎丝档案",
+  "icon": "profile",
+  "type": "document",
+  "locked": false,
+  "short_description": "铎丝（Dors）的背景与技术职责",
+  "content": "姓名：铎丝（Dors）\n年龄：34岁\n身份：MIT具身智能实验室高级研究员\n职责：MedDrone系列项目技术负责人\n\n基本信息：\n- 2138年本科毕业于斯坦福大学，电子工程专业\n- 2143年博士毕业于MIT，研究方向为自主系统安全性\n- 2143年留校任职，参与MedDrone项目至今\n\n与案件相关：\n- 丹尼尔（MedDrone-7原型机）的主要开发者之一\n- 负责撰写系统架构文档（E6）\n- 案发时不在实验室\n\n备注：\n铎丝与谢顿为同事关系，平时有工作交流。与克里昂教授为上下级关系，无明显冲突记录。",
+  "metadata": {
+    "source": "MIT人事档案",
+    "date": "2147-03",
+    "verified": true
+  }
+}

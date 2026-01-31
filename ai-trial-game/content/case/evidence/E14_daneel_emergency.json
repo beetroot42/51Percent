@@ -1,0 +1,15 @@
+{
+  "id": "E14",
+  "name": "丹尼尔关于急救决策的陈述",
+  "icon": "statement",
+  "type": "statement",
+  "locked": true,
+  "unlock_condition": "向丹尼尔出示E3",
+  "short_description": "丹尼尔解释为何查了心脏病史还打肾上腺素",
+  "content": "[占位：丹尼尔关于急救决策的陈述详细内容]\n\n丹尼尔解释为什么查了心脏病史还注射肾上腺素...",
+  "metadata": {
+    "source": "被告陈述",
+    "date": "2024-XX-XX",
+    "verified": false
+  }
+}

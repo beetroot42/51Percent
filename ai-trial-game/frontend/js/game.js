@@ -3,6 +3,7 @@
  */
 
 const PHASES = {
+    PROLOGUE: 'prologue',
     INVESTIGATION: 'investigation',
     PERSUASION: 'persuasion',
     VERDICT: 'verdict'
@@ -10,10 +11,17 @@ const PHASES = {
 
 const gameState = {
     phase: PHASES.INVESTIGATION,
+    sessionId: null,
     currentJuror: null,
     chatHistory: {},
     evidenceList: [],
+    daneelChatHistory: [],  // 保存丹尼尔对话历史
+    jurorRoundsLeft: {},
+    evidenceMode: 'witness',
 };
+
+let lastFocusedElement = null;
+let activeModalTrapCleanup = null;
 
 // ============ 初始化 ============
 
@@ -30,8 +38,11 @@ async function initGame() {
         gameState.phase = state.phase || PHASES.INVESTIGATION;
         bindEvents();
         
-        // 根据初始阶段显示 UI，避免在初始化时重新发送 setPhase
-        if (gameState.phase === PHASES.PERSUASION) {
+        // 根据初始阶段显示 UI
+        if (gameState.phase === PHASES.PROLOGUE) {
+            updatePhaseIndicator('序章');
+            await renderPrologue();
+        } else if (gameState.phase === PHASES.PERSUASION) {
             updatePhaseIndicator('说服阶段');
             showSection('persuasion-phase');
             await showJurorList();
@@ -79,8 +90,10 @@ function bindEvents() {
 
     // 当事人对话弹窗
     document.getElementById('close-dialogue-btn')?.addEventListener('click', closeWitnessDialogue);
-    document.getElementById('show-evidence-btn')?.addEventListener('click', showEvidenceSelector);
+    document.getElementById('show-evidence-btn')?.addEventListener('click', () => showEvidenceSelector('witness'));
     document.getElementById('cancel-evidence-btn')?.addEventListener('click', closeEvidenceSelector);
+    document.getElementById('back-dialogue-btn')?.addEventListener('click', handleDialogueBack);
+    document.getElementById('present-evidence-btn')?.addEventListener('click', () => showEvidenceSelector('juror'));
 
     // 投票重试/取消
     document.getElementById('retry-vote-btn')?.addEventListener('click', enterVerdict);
@@ -88,6 +101,22 @@ function bindEvents() {
         document.getElementById('voting-modal')?.classList.add('hidden');
         enterPersuasion();
     });
+
+    // Daneel Chat
+    document.getElementById('daneel-send-btn')?.addEventListener('click', handleDaneelChat);
+    document.getElementById('daneel-input')?.addEventListener('keypress', e => {
+        if (e.key === 'Enter') handleDaneelChat();
+    });
+
+    // Prologue Event Delegation
+    const blakeOptions = document.getElementById('blake-options');
+    if (blakeOptions) {
+        blakeOptions.addEventListener('click', (e) => {
+            if (e.target.matches('button[data-option-id]')) {
+                handleBlakeOption(e.target.dataset.optionId);
+            }
+        });
+    }
 }
 
 function handleTabClick(tabId) {
@@ -103,21 +132,406 @@ function handleTabClick(tabId) {
     else if (tabId === 'witnesses') showWitnessList();
 }
 
+// ============ 序章控制 ============
+
+// ============ 序章控制 (Refactored) ============
+
+let prologueScript = []; // 存储序章脚本队列
+let currentScriptIndex = 0;
+let isTyping = false;
+let prologueQueueDone = null;
+let currentBlakeOptions = null;
+
+async function renderPrologue() {
+    showSection('prologue-phase');
+    
+    const container = document.getElementById('prologue-scroll-container');
+    const trigger = document.getElementById('action-trigger');
+    
+    if (container) container.innerHTML = ''; // 清空
+    if (trigger) {
+        trigger.classList.add('disabled');
+        trigger.textContent = 'CONTINUE';
+        trigger.onclick = null;
+    }
+    
+    try {
+        // 1. 获取开场白 (Narrative)
+        const openingData = await getOpening();
+        if (openingData.session_id) {
+            gameState.sessionId = openingData.session_id;
+        }
+        
+        // 直接渲染完整开场白（不逐段 continue）
+        const openingText = openingData.text || '';
+        if (container) {
+            container.innerHTML = '';
+            const blocks = parseTextBlocks(openingText);
+            await renderPrologueBlocks(container, blocks, true);
+        }
+
+        // Opening 自动播放结束后，等待点击继续进入 Blake 对话
+        if (trigger) {
+            trigger.classList.remove('disabled');
+            trigger.onclick = async () => fetchNextBlakeRound();
+        }
+        
+    } catch (e) {
+        console.error("Prologue error:", e);
+        showError('无法加载序章');
+    }
+}
+
+async function playNextPrologueStep() {
+    if (isTyping) return; // 正在打字中，忽略点击（或者可以做成点击立即完成）
+    
+    const container = document.getElementById('prologue-scroll-container');
+    const trigger = document.getElementById('action-trigger');
+
+    // 检查是否有脚本
+    if (currentScriptIndex >= prologueScript.length) {
+        if (typeof prologueQueueDone === 'function') {
+            const done = prologueQueueDone;
+            prologueQueueDone = null;
+            await done();
+        }
+        return;
+    }
+
+    const item = prologueScript[currentScriptIndex];
+    currentScriptIndex++;
+    
+    // 隐藏按钮防止连点
+    if (trigger) trigger.classList.add('disabled');
+
+    // 创建消息DOM
+    if (item.type === 'dialogue') {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message dialogue';
+        msgDiv.innerHTML = `
+            <div class="speaker-label">${item.speaker || ''}</div>
+            <div class="content-text"></div>
+        `;
+        container.appendChild(msgDiv);
+        await typeWriter(msgDiv.querySelector('.content-text'), item.text);
+    } else {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message narrative';
+        container.appendChild(msgDiv);
+        msgDiv.textContent = '';
+        await typeWriter(msgDiv, item.text);
+    }
+
+    // 滚动到底部
+    container.scrollTop = container.scrollHeight;
+    
+    // 恢复按钮
+    if (trigger) trigger.classList.remove('disabled');
+}
+
+function parseTextBlocks(text, options = {}) {
+    const { defaultSpeaker = null } = options;
+    const lines = (text || '').split(/\r?\n/);
+    const blocks = [];
+    let currentSpeaker = null;
+    let currentNarrative = false;
+    let buffer = [];
+
+    const flush = () => {
+        const content = buffer.join('\n').trim();
+        if (!content) {
+            buffer = [];
+            return;
+        }
+        if (currentSpeaker) {
+            blocks.push({ type: 'dialogue', speaker: currentSpeaker, text: content, explicitNarrative: false });
+        } else {
+            blocks.push({ type: 'narrative', text: content, explicitNarrative: currentNarrative });
+        }
+        buffer = [];
+    };
+
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, '');
+        const trimmed = line.trim();
+        if (!trimmed) {
+            flush();
+            continue;
+        }
+
+        const inlineMatch = trimmed.match(/^(.{1,10})：\s*(.+)$/);
+        if (inlineMatch) {
+            flush();
+            const speaker = inlineMatch[1].trim();
+            const content = inlineMatch[2].trim();
+            if (speaker === '旁白') {
+                blocks.push({ type: 'narrative', text: content, explicitNarrative: true });
+            } else {
+                blocks.push({ type: 'dialogue', speaker, text: content, explicitNarrative: false });
+            }
+            currentSpeaker = null;
+            currentNarrative = false;
+            continue;
+        }
+
+        if (trimmed.endsWith('：') && trimmed.length <= 10) {
+            flush();
+            const speaker = trimmed.replace(/：$/, '').trim();
+            if (speaker === '旁白') {
+                currentSpeaker = null;
+                currentNarrative = true;
+            } else {
+                currentSpeaker = speaker;
+                currentNarrative = false;
+            }
+            continue;
+        }
+
+        buffer.push(line.trimEnd());
+    }
+
+    flush();
+
+    if (defaultSpeaker) {
+        return blocks.map(block => {
+            if (block.type === 'narrative' && !block.explicitNarrative) {
+                return { type: 'dialogue', speaker: defaultSpeaker, text: block.text };
+            }
+            return { type: block.type, speaker: block.speaker, text: block.text };
+        });
+    }
+
+    return blocks.map(block => ({ type: block.type, speaker: block.speaker, text: block.text }));
+}
+
+async function renderPrologueBlocks(container, blocks, useTypewriter) {
+    if (!container) return;
+    for (const block of blocks) {
+        if (block.type === 'dialogue') {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message dialogue';
+            msgDiv.innerHTML = `
+                <div class="speaker-label">${block.speaker || ''}</div>
+                <div class="content-text"></div>
+            `;
+            container.appendChild(msgDiv);
+            const textEl = msgDiv.querySelector('.content-text');
+            if (useTypewriter) {
+                await typeWriter(textEl, block.text);
+            } else {
+                textEl.textContent = block.text;
+            }
+        } else {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message narrative';
+            container.appendChild(msgDiv);
+            if (useTypewriter) {
+                msgDiv.textContent = '';
+                await typeWriter(msgDiv, block.text);
+            } else {
+                msgDiv.innerHTML = formatContent(block.text);
+            }
+        }
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+function renderBlocks(container, blocks, options = {}) {
+    if (!container) return;
+    const {
+        blockClass = '',
+        narrativeClass = '',
+        dialogueClass = '',
+        speakerClass = '',
+        textClass = '',
+        useFormatContent = false,
+        append = false
+    } = options;
+
+    if (!append) container.innerHTML = '';
+
+    blocks.forEach(block => {
+        if (block.type === 'dialogue') {
+            const wrapper = document.createElement('div');
+            wrapper.className = `${blockClass} ${dialogueClass}`.trim();
+            if (speakerClass && block.speaker) {
+                const speakerEl = document.createElement('div');
+                speakerEl.className = speakerClass;
+                speakerEl.textContent = block.speaker;
+                wrapper.appendChild(speakerEl);
+            }
+            const textEl = document.createElement('div');
+            if (textClass) textEl.className = textClass;
+            if (useFormatContent) {
+                textEl.innerHTML = formatContent(block.text);
+            } else {
+                textEl.textContent = block.text;
+            }
+            wrapper.appendChild(textEl);
+            container.appendChild(wrapper);
+        } else {
+            const wrapper = document.createElement('div');
+            wrapper.className = `${blockClass} ${narrativeClass}`.trim();
+            if (useFormatContent) {
+                wrapper.innerHTML = formatContent(block.text);
+            } else {
+                wrapper.textContent = block.text;
+            }
+            container.appendChild(wrapper);
+        }
+    });
+}
+
+async function fetchNextBlakeRound() {
+    const container = document.getElementById('prologue-scroll-container');
+    const trigger = document.getElementById('action-trigger');
+    if (trigger) trigger.classList.add('disabled'); // 加载中禁用
+
+    try {
+        const node = await getBlakeNode(gameState.sessionId);
+        
+        if (!node.options || node.options.length === 0) {
+            // 结束，进入调查
+            await enterInvestigation();
+            return;
+        }
+
+        currentBlakeOptions = node.options || [];
+        const blocks = parseTextBlocks(node.text || '', { defaultSpeaker: '布莱克' });
+        startPrologueQueue(blocks, async () => showPrologueChoices(currentBlakeOptions));
+
+        // 显示选项 (Choice Overlay)
+        if (trigger) {
+            trigger.classList.remove('disabled');
+            trigger.onclick = playNextPrologueStep;
+        }
+
+    } catch (e) {
+        console.error("Blake fetch error:", e);
+        if (trigger) trigger.classList.remove('disabled');
+    }
+}
+
+function showPrologueChoices(options) {
+    const overlay = document.getElementById('choice-overlay');
+    const choiceContainer = document.getElementById('choice-container');
+    if (!overlay || !choiceContainer) return;
+
+    choiceContainer.innerHTML = '';
+    options.forEach(opt => {
+        const btn = document.createElement('div');
+        btn.className = 'choice-item';
+        btn.textContent = opt.text;
+        btn.onclick = () => handlePrologueChoice(opt.id, opt.text);
+        choiceContainer.appendChild(btn);
+    });
+
+    overlay.classList.remove('hidden');
+}
+
+async function handlePrologueChoice(optionId, optionText) {
+    // 1. 隐藏 Overlay
+    document.getElementById('choice-overlay')?.classList.add('hidden');
+    
+    // 2. 在流中显示玩家的选择 (Narrative style or Self dialogue)
+    const container = document.getElementById('prologue-scroll-container');
+    const choiceMsg = document.createElement('div');
+    choiceMsg.className = 'message narrative';
+    choiceMsg.style.textAlign = 'center';
+    choiceMsg.style.opacity = '0.7';
+    choiceMsg.textContent = `> ${optionText}`;
+    container.appendChild(choiceMsg);
+    
+    try {
+        const result = await respondToBlake(gameState.sessionId, optionId);
+
+        if (result.response_text) {
+            const blocks = parseTextBlocks(result.response_text, { defaultSpeaker: '布莱克' });
+            startPrologueQueue(blocks, async () => {
+                if (result.phase === 'investigation') {
+                    await enterInvestigation();
+                } else {
+                    showPrologueChoices(currentBlakeOptions || []);
+                }
+            });
+        } else {
+            if (result.phase === 'investigation') {
+                await enterInvestigation();
+            } else {
+                showPrologueChoices(currentBlakeOptions || []);
+            }
+        }
+
+        const trigger = document.getElementById('action-trigger');
+        if (trigger) {
+            trigger.classList.remove('disabled');
+            trigger.onclick = playNextPrologueStep;
+        }
+    } catch (e) {
+        console.error("Prologue respond error", e);
+    }
+}
+
+function typeWriter(element, text) {
+    return new Promise(resolve => {
+        isTyping = true;
+        let i = 0;
+        const speed = 30; // ms per char
+        const container = document.getElementById('prologue-scroll-container');
+        
+        function step() {
+            if (i < text.length) {
+                element.textContent += text.charAt(i);
+                i++;
+                if (container) container.scrollTop = container.scrollHeight;
+                setTimeout(step, speed);
+            } else {
+                isTyping = false;
+                resolve();
+            }
+        }
+        step();
+    });
+}
+
+function startPrologueQueue(blocks, onDone) {
+    prologueScript = blocks;
+    currentScriptIndex = 0;
+    prologueQueueDone = onDone || null;
+}
+
+
 // ============ 阶段控制 ============
 
 async function enterInvestigation() {
+    if (!gameState.sessionId) {
+        try {
+            const opening = await getOpening();
+            gameState.sessionId = opening.session_id || opening.sessionId || null;
+        } catch (e) {
+            console.error('Failed to initialize session:', e);
+            showError('无法初始化会话');
+            return;
+        }
+    }
     gameState.phase = PHASES.INVESTIGATION;
-    await setPhase(PHASES.INVESTIGATION);
+    await setPhase(PHASES.INVESTIGATION, gameState.sessionId);
     updatePhaseIndicator('调查阶段');
     showSection('investigation-phase');
     await showDossier();
 }
 
 async function enterPersuasion() {
+    if (!gameState.sessionId) {
+        showError('会话已过期，请重新开始游戏');
+        await handleRestart();
+        return;
+    }
     setLoading(true);
+    let animationInterval = null;
     try {
         gameState.phase = PHASES.PERSUASION;
-        await setPhase(PHASES.PERSUASION);
+        await setPhase(PHASES.PERSUASION, gameState.sessionId);
         updatePhaseIndicator('说服阶段');
         showSection('persuasion-phase');
         await showJurorList();
@@ -131,7 +545,7 @@ async function enterPersuasion() {
 async function enterVerdict() {
     try {
         gameState.phase = PHASES.VERDICT;
-        await setPhase(PHASES.VERDICT);
+        await setPhase(PHASES.VERDICT, gameState.sessionId);
         updatePhaseIndicator('审判阶段');
         showSection('verdict-phase');
         document.getElementById('verdict-result').classList.add('hidden');
@@ -141,7 +555,7 @@ async function enterVerdict() {
         
         // 显示投票动画（适配 5 人）
         await showVotingAnimation(result);
-        showVerdict(result.verdict);
+        await showVerdict(result.verdict);
         
         // 如果有交易哈希，显示信息
         if (result.tx_hashes && result.tx_hashes.length > 0) {
@@ -179,7 +593,7 @@ async function enterVerdict() {
             error.message.includes("Failed to fetch") ||
             error.message.includes("超时")) {
             showError(
-                "⚠️ 链上通信故障\n\n" +
+                "链上通信故障\n\n" +
                 error.message + "\n\n" +
                 "提示: 请检查本地 Anvil 进程是否正常出块。"
             );
@@ -252,12 +666,18 @@ async function handleVotingProcess() {
         steps[1]?.classList.remove('active');
         steps[2]?.classList.add('active');
         updateStatus('等待本地区块链确认...', true);
-        animateProgressBar(60, 95, 3000);
+        animationInterval = setInterval(() => {
+            const current = parseFloat(progressBar.style.width) || 60;
+            if (current < 95) {
+                progressBar.style.width = `${Math.min(current + 0.3, 95)}%`;
+            }
+        }, 300);
 
         const result = await votePromise;
         
         // 清除提醒计时器
         clearTimeout(busyHintTimer);
+        if (animationInterval) clearInterval(animationInterval);
         
         // 成功处理
         updateStatus('完成！正在获取审判结果...');
@@ -268,6 +688,7 @@ async function handleVotingProcess() {
         return result;
     } catch (e) {
         clearTimeout(busyHintTimer);
+        if (animationInterval) clearInterval(animationInterval);
         throw e;
     }
 }
@@ -299,6 +720,8 @@ async function handleRestart() {
         await resetGame();
         gameState.currentJuror = null;
         gameState.chatHistory = {};
+        gameState.daneelChatHistory = [];  // 清空丹尼尔对话历史
+        gameState.jurorRoundsLeft = {};
         resetDialogue();
         await enterInvestigation();
     } catch (e) {
@@ -320,10 +743,19 @@ async function showDossier() {
     if (!container) return;
 
     try {
+        container.innerHTML = '<div class="loading">Loading...</div>';
         const data = await getDossier();
         container.innerHTML = `
             <h2>${data.title || '案件卷宗'}</h2>
-            <div class="dossier-text">${formatContent(data.content)}</div>
+            ${data.summary ? `<div class="dossier-summary">${formatContent(data.summary)}</div>` : ''}
+            <div class="dossier-sections">
+                ${(data.sections || []).map(s => `
+                    <section class="dossier-section">
+                        <h3>${s.title || ''}</h3>
+                        <div>${formatContent(s.content)}</div>
+                    </section>
+                `).join('')}
+            </div>
         `;
     } catch (e) {
         container.innerHTML = '<p class="error">无法加载卷宗</p>';
@@ -335,31 +767,260 @@ async function showEvidenceList() {
     if (!grid) return;
 
     try {
-        const list = await getEvidenceList();
+        grid.innerHTML = '<div class="loading">Loading...</div>';
+        let list = await getEvidenceList(gameState.sessionId);
         gameState.evidenceList = list;
+        const visibleList = (list || []).filter(e => !e.locked);
 
-        if (!list || list.length === 0) {
-            grid.innerHTML = '<p>暂无证据</p>';
+        if (!visibleList || visibleList.length === 0) {
+            grid.innerHTML = '<p>NO EVIDENCE FOUND</p>';
             return;
         }
 
-        grid.innerHTML = list.map(e => `
-            <div class="evidence-card" data-id="${e.id}" onclick="showEvidenceDetail('${e.id}')">
-                <span class="evidence-name">${e.name || e.id}</span>
+        grid.innerHTML = visibleList.map(e => `
+            <div class="evidence-card fade-in" 
+                 data-id="${e.id}" 
+                 role="button"
+                 tabindex="0"
+                 onclick="showEvidenceDetail('${e.id}')"
+                 onkeydown="if(event.key==='Enter'||event.key===' ')showEvidenceDetail('${e.id}')">
+                <span class="card-icon icon icon-doc" aria-hidden="true"></span>
+                <span class="card-title">${e.name || e.id}</span>
             </div>
         `).join('');
     } catch (e) {
-        grid.innerHTML = '<p class="error">无法加载证据列表</p>';
+        if (String(e.message || '').includes('Session not found')) {
+            gameState.sessionId = null;
+            try {
+                const list = await getEvidenceList(null);
+                gameState.evidenceList = list;
+                const visibleList = (list || []).filter(e => !e.locked);
+                if (!visibleList || visibleList.length === 0) {
+                    grid.innerHTML = '<p>NO EVIDENCE FOUND</p>';
+                    return;
+                }
+                grid.innerHTML = visibleList.map(e => `
+                    <div class="evidence-card fade-in" 
+                         data-id="${e.id}" 
+                         role="button"
+                         tabindex="0"
+                         onclick="showEvidenceDetail('${e.id}')"
+                         onkeydown="if(event.key==='Enter'||event.key===' ')showEvidenceDetail('${e.id}')">
+                        <span class="card-icon icon icon-doc" aria-hidden="true"></span>
+                        <span class="card-title">${e.name || e.id}</span>
+                    </div>
+                `).join('');
+                return;
+            } catch (inner) {
+                // Fall through to error message
+            }
+        }
+        grid.innerHTML = '<p class="error">ERROR LOADING EVIDENCE</p>';
     }
 }
 
 async function showEvidenceDetail(evidenceId) {
     try {
-        const evidence = await getEvidence(evidenceId);
-        alert(`【${evidence.name || evidenceId}】\n\n${evidence.description || evidence.content || '无详细信息'}`);
+        ensureEvidenceModal();
+        const modal = document.getElementById('evidence-modal');
+        const titleEl = document.getElementById('evidence-modal-title');
+        const contentEl = document.getElementById('evidence-modal-content');
+        if (contentEl) contentEl.innerHTML = '<div class="loading">Loading...</div>';
+        openModal(modal);
+
+        const evidence = await getEvidence(evidenceId, gameState.sessionId);
+
+        if (titleEl) {
+            titleEl.textContent = `[EVIDENCE] ${evidence.name || evidenceId}`;
+        }
+        if (contentEl) {
+            const body = evidence.description || evidence.content || 'NO DATA';
+            contentEl.innerHTML = renderMarkdown(body);
+        }
     } catch (e) {
-        showError('无法加载证据详情');
+        showError('ACCESS DENIED');
     }
+}
+
+function ensureEvidenceModal() {
+    if (document.getElementById('evidence-modal')) return;
+    const modal = document.createElement('div');
+    modal.id = 'evidence-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+        <div class="modal-content evidence-modal-content" tabindex="-1">
+            <h3 id="evidence-modal-title">[EVIDENCE]</h3>
+            <div id="evidence-modal-content" class="evidence-content"></div>
+            <div class="modal-actions">
+                <button id="close-evidence-btn" class="mono-btn">CLOSE</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal(modal);
+    });
+    document.getElementById('close-evidence-btn')?.addEventListener('click', () => {
+        closeModal(modal);
+    });
+}
+
+function openModal(modal) {
+    if (!modal) return;
+    if (modal.parentElement !== document.body) {
+        document.body.appendChild(modal);
+    }
+    lastFocusedElement = document.activeElement;
+    modal.classList.remove('hidden');
+    const content = modal.querySelector('.modal-content');
+    if (content && !content.hasAttribute('tabindex')) {
+        content.setAttribute('tabindex', '-1');
+    }
+    const focusTarget = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || content || modal;
+    focusTarget?.focus?.();
+    if (activeModalTrapCleanup) activeModalTrapCleanup();
+    activeModalTrapCleanup = trapFocus(modal);
+}
+
+function closeModal(modal) {
+    if (!modal) return;
+    modal.classList.add('hidden');
+    if (activeModalTrapCleanup) {
+        activeModalTrapCleanup();
+        activeModalTrapCleanup = null;
+    }
+    if (lastFocusedElement && lastFocusedElement.focus) {
+        lastFocusedElement.focus();
+    }
+}
+
+function trapFocus(modal) {
+    const focusable = Array.from(
+        modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+    ).filter(el => !el.disabled && el.offsetParent !== null);
+    if (focusable.length === 0) return () => {};
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    const handleKeydown = (event) => {
+        if (event.key !== 'Tab') return;
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    };
+
+    modal.addEventListener('keydown', handleKeydown);
+    return () => modal.removeEventListener('keydown', handleKeydown);
+}
+
+function renderMarkdown(text) {
+    if (!text) return '';
+    const escapeHtml = (s) =>
+        s.replace(/&/g, '&amp;')
+         .replace(/</g, '&lt;')
+         .replace(/>/g, '&gt;')
+         .replace(/"/g, '&quot;')
+         .replace(/'/g, '&#39;');
+
+    const lines = String(text).split(/\r?\n/);
+    const out = [];
+    let i = 0;
+
+    const applyInline = (s) => {
+        let t = escapeHtml(s);
+        t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+        t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        t = t.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        return t;
+    };
+
+    while (i < lines.length) {
+        const line = lines[i];
+
+        if (!line.trim()) {
+            i += 1;
+            continue;
+        }
+
+        if (/^#{1,6}\s+/.test(line)) {
+            const level = line.match(/^#+/)[0].length;
+            const content = applyInline(line.replace(/^#{1,6}\s+/, ''));
+            out.push(`<h${level}>${content}</h${level}>`);
+            i += 1;
+            continue;
+        }
+
+        if (/^---+$/.test(line.trim())) {
+            out.push('<hr>');
+            i += 1;
+            continue;
+        }
+
+        if (/^```/.test(line.trim())) {
+            const fence = line.trim();
+            const code = [];
+            i += 1;
+            while (i < lines.length && lines[i].trim() !== fence) {
+                code.push(lines[i]);
+                i += 1;
+            }
+            i += 1;
+            out.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+            continue;
+        }
+
+        if (/^\s*[-*]\s+/.test(line)) {
+            const items = [];
+            while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+                items.push(`<li>${applyInline(lines[i].replace(/^\s*[-*]\s+/, ''))}</li>`);
+                i += 1;
+            }
+            out.push(`<ul>${items.join('')}</ul>`);
+            continue;
+        }
+
+        if (/^\s*\d+\.\s+/.test(line)) {
+            const items = [];
+            while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+                items.push(`<li>${applyInline(lines[i].replace(/^\s*\d+\.\s+/, ''))}</li>`);
+                i += 1;
+            }
+            out.push(`<ol>${items.join('')}</ol>`);
+            continue;
+        }
+
+        const isTableSeparator = (l) =>
+            /^\s*\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/.test(l);
+
+        if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+            const headerCells = line.split('|').map((c) => c.trim()).filter((c) => c);
+            const rows = [];
+            i += 2;
+            while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+                const cells = lines[i].split('|').map((c) => c.trim()).filter((c) => c);
+                rows.push(cells);
+                i += 1;
+            }
+            const thead = `<thead><tr>${headerCells.map((c) => `<th>${applyInline(c)}</th>`).join('')}</tr></thead>`;
+            const tbody = `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${applyInline(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+            out.push(`<table>${thead}${tbody}</table>`);
+            continue;
+        }
+
+        const para = [];
+        while (i < lines.length && lines[i].trim()) {
+            para.push(lines[i]);
+            i += 1;
+        }
+        out.push(`<p>${applyInline(para.join('<br>'))}</p>`);
+    }
+
+    return out.join('');
 }
 
 async function showWitnessList() {
@@ -367,32 +1028,118 @@ async function showWitnessList() {
     if (!grid) return;
 
     try {
+        grid.innerHTML = '<div class="loading">Loading...</div>';
         const list = await getWitnessList();
         if (!list || list.length === 0) {
-            grid.innerHTML = '<p>暂无当事人</p>';
+            grid.innerHTML = '<p>NO WITNESSES FOUND</p>';
             return;
         }
 
         grid.innerHTML = list.map(w => `
-            <div class="witness-card" data-id="${w.id}" onclick="startWitnessDialogue('${w.id}')">
-                <span class="witness-name">${w.name || w.id}</span>
-                <span class="witness-desc">${w.description || ''}</span>
+            <div class="witness-card fade-in" data-id="${w.id}"
+                 role="button"
+                 tabindex="0"
+                 onclick="startWitnessDialogue('${w.id}')"
+                 onkeydown="if(event.key==='Enter'||event.key===' ')startWitnessDialogue('${w.id}')">
+                <span class="card-icon icon icon-user" aria-hidden="true"></span>
+                <span class="card-title">${w.name || w.id}</span>
             </div>
         `).join('');
     } catch (e) {
-        grid.innerHTML = '<p class="error">无法加载当事人列表</p>';
+        grid.innerHTML = '<p class="error">ERROR LOADING WITNESSES</p>';
     }
 }
 
 async function startWitnessDialogue(witnessId) {
     try {
-        await loadWitness(witnessId);
+        gameState.currentWitness = witnessId;
         const modal = document.getElementById('witness-dialogue-modal');
-        modal?.classList.remove('hidden');
-        renderDialogueNode();
+        openModal(modal);
+
+        // Reset UI state
+        document.getElementById('witness-text').classList.remove('hidden');
+        document.getElementById('dialogue-options').classList.remove('hidden');
+        document.getElementById('daneel-chat-container').classList.add('hidden');
+        
+        if (witnessId === 'daneel') {
+            // Daneel Interface
+            document.getElementById('witness-text').classList.add('hidden');
+            document.getElementById('dialogue-options').classList.add('hidden');
+            document.getElementById('daneel-chat-container').classList.remove('hidden');
+            // 恢复之前的对话历史
+            renderDaneelHistory();
+        } else {
+            // Standard Dialogue Tree
+            await loadWitness(witnessId);
+            renderDialogueNode();
+        }
     } catch (e) {
-        showError('无法加载对话');
+        showError('CONNECTION FAILED');
     }
+}
+
+async function handleDaneelChat() {
+    const input = document.getElementById('daneel-input');
+    const history = document.getElementById('daneel-chat-history');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    // 保存玩家消息到历史
+    gameState.daneelChatHistory.push({ role: 'player', content: msg });
+
+    // Append Player Msg
+    const pMsg = document.createElement('div');
+    pMsg.className = 'witness-block witness-dialogue';
+    pMsg.innerHTML = `<div class="witness-speaker message-overseer">OVERSEER</div><div class="witness-line-text message-overseer-text">${msg}</div>`;
+    history.appendChild(pMsg);
+
+    input.value = '';
+
+    try {
+        const res = await witnessChat('daneel', gameState.sessionId, { message: msg });
+
+        // 保存丹尼尔回复到历史
+        gameState.daneelChatHistory.push({ role: 'daneel', content: res.text });
+
+        // Append Bot Msg
+        const bMsg = document.createElement('div');
+        bMsg.className = 'witness-block witness-dialogue';
+        bMsg.innerHTML = `<div class="witness-speaker">DANEEL</div><div class="witness-line-text">${res.text}</div>`;
+        history.appendChild(bMsg);
+        history.scrollTop = history.scrollHeight;
+
+    } catch (e) {
+        // 移除未成功的玩家消息
+        gameState.daneelChatHistory.pop();
+        showError('COMMUNICATION ERROR');
+    }
+}
+
+// 渲染丹尼尔对话历史
+function renderDaneelHistory() {
+    const history = document.getElementById('daneel-chat-history');
+    history.innerHTML = '';
+
+    for (const msg of gameState.daneelChatHistory) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'witness-block witness-dialogue';
+
+        if (msg.role === 'player') {
+            msgDiv.innerHTML = `<div class="witness-speaker message-overseer">OVERSEER</div><div class="witness-line-text message-overseer-text">${msg.content}</div>`;
+        } else if (msg.role === 'daneel') {
+            msgDiv.innerHTML = `<div class="witness-speaker">DANEEL</div><div class="witness-line-text">${msg.content}</div>`;
+        } else if (msg.role === 'system') {
+            msgDiv.style.fontStyle = 'italic';
+            msgDiv.style.textAlign = 'center';
+            msgDiv.style.margin = '10px 0';
+            msgDiv.style.color = '#888';
+            msgDiv.textContent = msg.content;
+        }
+
+        history.appendChild(msgDiv);
+    }
+
+    history.scrollTop = history.scrollHeight;
 }
 
 function renderDialogueNode() {
@@ -401,20 +1148,34 @@ function renderDialogueNode() {
     const optionsEl = document.getElementById('dialogue-options');
 
     if (!node) {
-        if (textEl) textEl.textContent = '对话已结束';
+        if (textEl) textEl.textContent = 'Connection Terminated.';
         if (optionsEl) optionsEl.innerHTML = '';
         return;
     }
 
-    if (textEl) textEl.textContent = node.text || '';
+    if (textEl) {
+         // ... (existing logic for non-daneel text rendering is fine, kept concise here)
+         const defaultSpeaker = dialogueState.dialogueTree?.name || null;
+         const blocks = parseTextBlocks(node.text || '', { defaultSpeaker });
+         renderBlocks(textEl, blocks, {
+             blockClass: 'witness-block',
+             narrativeClass: 'witness-narrative',
+             dialogueClass: 'witness-dialogue',
+             speakerClass: 'witness-speaker',
+             textClass: 'witness-line-text',
+             useFormatContent: true
+         });
+    }
 
     if (optionsEl) {
         if (node.options && node.options.length > 0) {
             optionsEl.innerHTML = node.options.map(opt => `
-                <button class="dialogue-option-btn" onclick="handleDialogueOption('${opt.next}')">${opt.text}</button>
+                <button class="dialogue-option-btn mono-btn" onclick="handleDialogueOption('${opt.next}')">
+                    > ${opt.text}
+                </button>
             `).join('');
         } else {
-            optionsEl.innerHTML = '<p class="dialogue-end">（对话结束）</p>';
+            optionsEl.innerHTML = '<p class="dialogue-end">[END OF RECORD]</p>';
         }
     }
 }
@@ -424,43 +1185,179 @@ function handleDialogueOption(nextNodeId) {
     renderDialogueNode();
 }
 
+function handleDialogueBack() {
+    if (dialogueState.history && dialogueState.history.length > 0) {
+        dialogueState.currentNode = dialogueState.history.pop();
+        renderDialogueNode();
+        return;
+    }
+    showError('已经是第一个对话节点');
+}
 function closeWitnessDialogue() {
-    document.getElementById('witness-dialogue-modal')?.classList.add('hidden');
+    closeModal(document.getElementById('witness-dialogue-modal'));
     resetDialogue();
 }
 
-function showEvidenceSelector() {
+/**
+ * 检查证物是否已在当前对话中出示过
+ */
+function hasShownEvidence(evidenceId) {
+    if (gameState.evidenceMode === 'juror') {
+        if (!gameState.currentJuror) return false;
+        const history = gameState.chatHistory[gameState.currentJuror] || [];
+        return history.some(msg =>
+            msg.role === 'player' &&
+            msg.content?.includes(`出示证物: ${evidenceId}`)
+        );
+    }
+
+    if (typeof dialogueState !== 'undefined') {
+        return (dialogueState.shownEvidence || []).includes(evidenceId);
+    }
+    return false;
+}
+
+async function showEvidenceSelector(mode = 'witness') {
     const grid = document.getElementById('evidence-selector-grid');
     const modal = document.getElementById('evidence-selector-modal');
 
-    if (grid && gameState.evidenceList.length > 0) {
-        grid.innerHTML = gameState.evidenceList.map(e => `
-            <button class="evidence-select-btn ${hasShownEvidence(e.id) ? 'shown' : ''}"
+    gameState.evidenceMode = mode;
+    if (!gameState.evidenceList || gameState.evidenceList.length === 0) {
+        try {
+            gameState.evidenceList = await getEvidenceList(gameState.sessionId);
+        } catch (e) {
+            gameState.evidenceList = [];
+        }
+    }
+
+    const available = (gameState.evidenceList || []).filter(e => !e.locked);
+    if (grid && available.length > 0) {
+        grid.innerHTML = available.map(e => `
+            <button class="evidence-select-btn mono-btn ${hasShownEvidence(e.id) ? 'shown' : ''}"
                     onclick="handleShowEvidence('${e.id}')">
-                ${e.name || e.id}
+                [${e.id}] ${e.name || e.id}
             </button>
         `).join('');
     } else if (grid) {
-        grid.innerHTML = '<p>没有可出示的证物</p>';
+        grid.innerHTML = '<p>NO EVIDENCE AVAILABLE</p>';
     }
 
-    modal?.classList.remove('hidden');
+    openModal(modal);
 }
 
 function closeEvidenceSelector() {
-    document.getElementById('evidence-selector-modal')?.classList.add('hidden');
+    closeModal(document.getElementById('evidence-selector-modal'));
 }
 
 function handleShowEvidence(evidenceId) {
-    const reaction = showEvidence(evidenceId);
     closeEvidenceSelector();
 
-    if (reaction && reaction.text) {
-        alert(`【证物反应】\n\n${reaction.text}`);
-        renderDialogueNode();
-    } else {
-        alert('对方对这个证物没有特别反应');
+    if (gameState.evidenceMode === 'juror') {
+        (async () => {
+            if (!gameState.currentJuror) {
+                showError('请先选择陪审员');
+                return;
+            }
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('send-btn');
+            const presentBtn = document.getElementById('present-evidence-btn');
+            let roundsLeftAfter = null;
+            if (input) input.disabled = true;
+            if (sendBtn) sendBtn.disabled = true;
+            if (presentBtn) presentBtn.disabled = true;
+
+            try {
+                const response = await presentEvidenceToJuror(
+                    gameState.currentJuror,
+                    evidenceId,
+                    gameState.sessionId
+                );
+                const replyText = response.text || response.reply || '（陪审员正在思考...）';
+                appendMessage('player', `出示证物: ${evidenceId}`);
+                appendMessage('juror', replyText);
+                gameState.chatHistory[gameState.currentJuror].push({ role: 'player', content: `出示证物: ${evidenceId}` });
+                gameState.chatHistory[gameState.currentJuror].push({ role: 'juror', content: replyText });
+
+                if (typeof response.rounds_left === 'number') {
+                    roundsLeftAfter = response.rounds_left;
+                    gameState.jurorRoundsLeft[gameState.currentJuror] = response.rounds_left;
+                    updateRoundsDisplay(response.rounds_left);
+                    if (response.rounds_left === 0) {
+                        disableChatInput();
+                        appendMessage('system', '你已用完与该陪审员的对话次数');
+                    }
+                }
+
+                if (response.weakness_triggered) {
+                    showWeaknessEffect();
+                }
+            } catch (e) {
+                console.error(e);
+                showError('出示证物失败');
+            } finally {
+                const exhausted = roundsLeftAfter === 0;
+                if (input) input.disabled = exhausted;
+                if (sendBtn) sendBtn.disabled = exhausted;
+                if (presentBtn) presentBtn.disabled = exhausted;
+            }
+        })();
+        return;
     }
+
+    // Witness flow
+    (async () => {
+        try {
+            const result = await presentEvidence(
+                gameState.currentWitness, evidenceId, gameState.sessionId
+            );
+
+            const reactionText = result.text || '...';
+
+            // Show reaction
+            if (gameState.currentWitness === 'daneel') {
+                 // 保存到历史
+                 gameState.daneelChatHistory.push({ role: 'system', content: `[EVIDENCE PRESENTED: ${evidenceId}]` });
+                 gameState.daneelChatHistory.push({ role: 'daneel', content: reactionText });
+
+                 const history = document.getElementById('daneel-chat-history');
+                 const sysMsg = document.createElement('div');
+                 sysMsg.style.fontStyle = 'italic';
+                 sysMsg.style.textAlign = 'center';
+                 sysMsg.style.margin = '10px 0';
+                 sysMsg.style.color = '#888';
+                 sysMsg.textContent = `[EVIDENCE PRESENTED: ${evidenceId}]`;
+                 history.appendChild(sysMsg);
+
+                 const bMsg = document.createElement('div');
+                 bMsg.className = 'witness-block witness-dialogue';
+                 bMsg.innerHTML = `<div class="witness-speaker">DANEEL</div><div class="witness-line-text">${reactionText}</div>`;
+                 history.appendChild(bMsg);
+            } else {
+                 alert(`[REACTION RECORDED]\n\n${reactionText}`);
+            }
+
+            // Handle Unlocks
+            if (result.unlocks && result.unlocks.length > 0) {
+                showUnlockNotification(result.unlocks);
+                await showEvidenceList(); // Refresh list to show unlocked items
+            }
+
+        } catch (e) {
+            console.error(e);
+            alert('NO REACTION / ERROR');
+        }
+    })();
+}
+
+function showUnlockNotification(evidenceIds) {
+    const toast = document.createElement('div');
+    toast.className = 'unlock-toast';
+    toast.innerHTML = `<span>EVIDENCE UNLOCKED: ${evidenceIds.join(', ')}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 500);
+    }, 3000);
 }
 
 // ============ 说服阶段UI ============
@@ -470,22 +1367,28 @@ async function showJurorList() {
     if (!container) return;
 
     try {
-        const jurors = await getJurors();
+        const jurors = await getJurors(gameState.sessionId);
         const realJurors = jurors.filter(j => !j.id.startsWith('test'));
 
         if (realJurors.length === 0) {
-            container.innerHTML = '<p>暂无陪审员</p>';
+            container.innerHTML = '<p>NO JURORS DETECTED</p>';
             return;
         }
 
         container.innerHTML = realJurors.map(j => `
-            <div class="juror-card ${gameState.currentJuror === j.id ? 'selected' : ''}"
-                 data-id="${j.id}" onclick="selectJuror('${j.id}')">
+            <div class="juror-card ${gameState.currentJuror === j.id ? 'active' : ''}"
+                 data-id="${j.id}"
+                 onclick="selectJuror('${j.id}')"
+                 onkeydown="if(event.key==='Enter'||event.key===' ')selectJuror('${j.id}')"
+                 role="button"
+                 tabindex="0">
+                <span class="juror-codename">${j.codename || ''}</span>
                 <span class="juror-name">${j.name || j.id}</span>
+                <span class="juror-stance-hint">${j.stance_label || ''}</span>
             </div>
         `).join('');
     } catch (e) {
-        container.innerHTML = '<p class="error">无法加载陪审员</p>';
+        container.innerHTML = '<p class="error">ERROR LOADING JURORS</p>';
     }
 }
 
@@ -494,30 +1397,39 @@ async function selectJuror(jurorId) {
 
     // 更新选中状态
     document.querySelectorAll('.juror-card').forEach(card => {
-        card.classList.toggle('selected', card.dataset.id === jurorId);
+        card.classList.toggle('active', card.dataset.id === jurorId);
     });
 
     // 更新聊天区域
     const headerName = document.getElementById('current-juror-name');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
+    const presentBtn = document.getElementById('present-evidence-btn');
 
     try {
-        const juror = await getJuror(jurorId);
-        if (headerName) headerName.textContent = juror.name || jurorId;
+        const juror = await getJuror(jurorId, gameState.sessionId);
+        if (headerName) headerName.textContent = (juror.name || jurorId).toUpperCase();
     } catch {
-        if (headerName) headerName.textContent = jurorId;
+        if (headerName) headerName.textContent = jurorId.toUpperCase();
     }
 
+    const roundsLeft = typeof gameState.jurorRoundsLeft[jurorId] === 'number'
+        ? gameState.jurorRoundsLeft[jurorId]
+        : 10;
+    gameState.jurorRoundsLeft[jurorId] = roundsLeft;
+    updateRoundsDisplay(roundsLeft);
+
     // 启用输入
-    if (chatInput) chatInput.disabled = false;
-    if (sendBtn) sendBtn.disabled = false;
+    const exhausted = roundsLeft <= 0;
+    if (chatInput) chatInput.disabled = exhausted;
+    if (sendBtn) sendBtn.disabled = exhausted;
+    if (presentBtn) presentBtn.disabled = exhausted;
 
     // 渲染历史或首次对话
     if (!gameState.chatHistory[jurorId]) {
         gameState.chatHistory[jurorId] = [];
         try {
-            const juror = await getJuror(jurorId);
+            const juror = await getJuror(jurorId, gameState.sessionId);
             if (juror.first_message) {
                 gameState.chatHistory[jurorId].push({ role: 'juror', content: juror.first_message });
             }
@@ -540,11 +1452,22 @@ async function handleSendMessage() {
     appendMessage('player', message);
     gameState.chatHistory[gameState.currentJuror].push({ role: 'player', content: message });
 
-    // 显示加载
-    const loadingId = appendMessage('juror', '思考中...');
+    // 显示加载 - Special loading element
+    const container = document.getElementById('chat-messages');
+    const loadingId = 'msg-loading-' + Date.now();
+    const loadingEl = document.createElement('div');
+    loadingEl.id = loadingId;
+    loadingEl.className = 'message juror';
+    loadingEl.innerHTML = `
+        <div class="speaker">SYSTEM</div>
+        <div class="text">Analyzing...</div>
+    `;
+    container.appendChild(loadingEl);
+    container.scrollTop = container.scrollHeight;
 
+    let roundsLeftAfter = null;
     try {
-        const response = await chatWithJuror(gameState.currentJuror, message);
+        const response = await chatWithJuror(gameState.currentJuror, message, gameState.sessionId);
         // 移除加载消息
         document.getElementById(loadingId)?.remove();
 
@@ -552,53 +1475,120 @@ async function handleSendMessage() {
         if (response.tool_actions && response.tool_actions.length > 0) {
             for (const action of response.tool_actions) {
                 await renderToolAction(action);
-                // Record in history as a special type if needed, or just skip for now as history re-render doesn't support it yet
             }
         }
-
+        
         if (response.has_voted) {
             markJurorAsVoted(gameState.currentJuror);
         }
+        
+        // Show response
+        const replyText = response.reply || '（陪审员正在思考...）';
+        appendMessage('juror', replyText);
+        gameState.chatHistory[gameState.currentJuror].push({ role: 'juror', content: replyText });
+        
         // ---------------------------
+        if (typeof response.rounds_left === 'number') {
+            roundsLeftAfter = response.rounds_left;
+            gameState.jurorRoundsLeft[gameState.currentJuror] = response.rounds_left;
+            updateRoundsDisplay(response.rounds_left);
+            if (response.rounds_left === 0) {
+                disableChatInput();
+                appendMessage('system', '你已用完与该陪审员的对话次数');
+            }
+        }
 
-        // 显示回复
-        const reply = response.reply || '...';
-        appendMessage('juror', reply);
-        gameState.chatHistory[gameState.currentJuror].push({ role: 'juror', content: reply });
+        if (response.weakness_triggered) {
+            showWeaknessEffect();
+        }
+
     } catch (e) {
         document.getElementById(loadingId)?.remove();
-        appendMessage('juror', '（无法获取回复）');
+        showError('TRANSMISSION ERROR');
     } finally {
-        input.disabled = false;
-        document.getElementById('send-btn').disabled = false;
-        input.focus();
+        const exhausted = roundsLeftAfter === 0;
+        if (input) input.disabled = exhausted;
+        const sendBtn = document.getElementById('send-btn');
+        if (sendBtn) sendBtn.disabled = exhausted;
+        const presentBtn = document.getElementById('present-evidence-btn');
+        if (presentBtn) presentBtn.disabled = exhausted;
+        if (!exhausted) input.focus();
     }
 }
 
+function updateRoundsDisplay(roundsLeft) {
+    const counter = document.getElementById('rounds-counter');
+    if (!counter) return;
+    counter.textContent = `剩余: ${roundsLeft}/10`;
+    counter.classList.toggle('low', roundsLeft <= 3 && roundsLeft > 0);
+    counter.classList.toggle('exhausted', roundsLeft === 0);
+}
+
+function disableChatInput() {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const presentBtn = document.getElementById('present-evidence-btn');
+    if (input) input.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+    if (presentBtn) presentBtn.disabled = true;
+}
+
+function showWeaknessEffect() {
+    const chatArea = document.getElementById('chat-messages');
+    if (!chatArea) return;
+    chatArea.classList.add('weakness-flash');
+    setTimeout(() => chatArea.classList.remove('weakness-flash'), 1000);
+}
+
+// 渲染历史消息
 function renderChatHistory(jurorId) {
     const container = document.getElementById('chat-messages');
     if (!container) return;
-
-    const history = gameState.chatHistory[jurorId] || [];
+    
     container.innerHTML = '';
-
+    const history = gameState.chatHistory[jurorId] || [];
+    
     history.forEach(msg => {
         appendMessage(msg.role, msg.content);
     });
 }
 
-function appendMessage(role, content) {
+// 添加消息到界面 (Script Style)
+function appendMessage(role, text) {
     const container = document.getElementById('chat-messages');
-    if (!container) return null;
+    if (!container) {
+        console.error('[appendMessage] Chat container not found');
+        return null;
+    }
 
-    const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
-    const div = document.createElement('div');
-    div.id = id;
-    div.className = `message ${role}`;
-    div.textContent = content;
-    container.appendChild(div);
+    const displayText = text ?? '（无回应）';
+    if (!text) {
+        console.warn('[appendMessage] Empty text for role:', role);
+    }
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role} fade-in`;
+    
+    const speakerName = role === 'player'
+        ? 'OVERSEER'
+        : (role === 'system' ? 'SYSTEM' : (document.getElementById('current-juror-name')?.textContent || 'JUROR'));
+    
+    msgDiv.innerHTML = `
+        <div class="speaker">${speakerName}</div>
+        <div class="text"></div>
+    `;
+    
+    container.appendChild(msgDiv);
+    
+    // Typewriter effect only if it's the latest message (optimized: if lots of history, maybe skip typewriting for old ones?
+    // For now, let's just set textContent directly to avoid slow history loading, unless we want the effect specific to new messages.
+    // The previous call structure implies this sits in a loop for history. Let's differentiation.
+    // Actually, simple textContent is safer for history. We can add a specialized "typeMessage" function if we want animation.
+    
+    msgDiv.querySelector('.text').textContent = displayText;
     container.scrollTop = container.scrollHeight;
-    return id;
+    
+    return msgDiv; // Return element for manipulation
 }
 
 // ============ 审判阶段UI ============
@@ -641,7 +1631,7 @@ async function showVotingAnimation(voteResult) {
     await sleep(500);
 }
 
-function showVerdict(verdict) {
+async function showVerdict(verdict) {
     const resultEl = document.getElementById('verdict-result');
     const textEl = document.getElementById('verdict-text');
     const descEl = document.getElementById('verdict-description');
@@ -654,9 +1644,25 @@ function showVerdict(verdict) {
     }
 
     if (descEl) {
-        descEl.textContent = isGuilty
-            ? 'AI被判定有罪，将面临程序终止的命运。'
-            : 'AI被判定无罪，它重获自由。真正的凶手仍在逍遥法外...';
+        try {
+            const ending = await getEnding(verdict);
+            const blocks = parseTextBlocks(ending.text || '');
+            const blakeBlocks = ending.blake_reaction
+                ? parseTextBlocks(ending.blake_reaction, { defaultSpeaker: '布莱克' })
+                : [];
+            renderBlocks(descEl, [...blocks, ...blakeBlocks], {
+                blockClass: 'ending-block',
+                narrativeClass: 'ending-narrative',
+                dialogueClass: 'ending-dialogue',
+                speakerClass: 'ending-speaker',
+                textClass: 'ending-text',
+                useFormatContent: true
+            });
+        } catch (e) {
+            descEl.textContent = isGuilty
+                ? 'AI被判定有罪，将面临程序终止的命运。'
+                : 'AI被判定无罪，它重获自由。真正的凶手仍在逍遥法外...';
+        }
     }
 
     resultEl?.classList.remove('hidden');
@@ -704,7 +1710,7 @@ function showChainResetNotice() {
     const notice = document.createElement('div');
     notice.className = 'chain-reset-notice';
     notice.innerHTML = `
-        <span class="icon">⚠️</span>
+        <span class="icon icon-warning" aria-hidden="true"></span>
         <p>检测到本地链已重置，历史记录已清理</p>
     `;
     document.body.appendChild(notice);
@@ -744,10 +1750,10 @@ async function showVerificationPanel() {
         content.classList.remove('hidden');
 
         if (verificationData.verified) {
-            status.textContent = '✓ 已验证';
+            status.textContent = '已验证';
             status.className = 'status verified';
         } else {
-            status.textContent = '⚠️ 验证失败';
+            status.textContent = '验证失败';
             status.className = 'status failed';
         }
 
@@ -761,7 +1767,7 @@ async function showVerificationPanel() {
     } catch (error) {
         console.error('Verification failed:', error);
         loading.classList.add('hidden');
-        status.textContent = '⚠️ 验证失败';
+        status.textContent = '验证失败';
         status.className = 'status failed';
 
         // 显示错误信息
@@ -807,7 +1813,7 @@ function fillVoteComparison(voteData) {
     document.getElementById('chain-guilty').textContent = voteData.guiltyVotes;
     document.getElementById('chain-not-guilty').textContent = voteData.notGuiltyVotes;
     
-    // 这里可以添加与本地结果对比的逻辑，目前先默认显示 ✓
+    // 这里可以添加与本地结果对比的逻辑
 }
 
 function sleep(ms) {
@@ -837,7 +1843,7 @@ async function renderToolAction(action) {
                 <em>${escapeHtml(action.narrative || '正在查阅资料...')}</em>
             </div>
             <div class="evidence-reference">
-                <span class="evidence-icon">📄</span>
+                <span class="evidence-icon icon icon-doc" aria-hidden="true"></span>
                 <span class="evidence-name">${escapeHtml(evidenceName)}</span>
             </div>
         `;
@@ -850,7 +1856,7 @@ async function renderToolAction(action) {
                 <em>${escapeHtml(action.narrative || '做出决定...')}</em>
             </div>
             <div class="vote-event ${voteClass}">
-                <span class="vote-icon">⚖️</span>
+                <span class="vote-icon icon icon-scale" aria-hidden="true"></span>
                 <span class="vote-result">投票: ${voteType}</span>
             </div>
         `;
@@ -861,7 +1867,7 @@ async function renderToolAction(action) {
                 <em>${escapeHtml(action.narrative || '思考中...')}</em>
             </div>
             <div class="evidence-reference">
-                <span class="evidence-icon">⚙️</span>
+                <span class="evidence-icon icon icon-gear" aria-hidden="true"></span>
                 <span class="evidence-name">${escapeHtml(action.tool)}</span>
             </div>
         `;
@@ -911,7 +1917,7 @@ function copyTxHash() {
         .then(() => {
             const btn = document.querySelector('.copy-btn');
             const originalText = btn.textContent;
-            btn.textContent = '✓';
+            btn.textContent = 'OK';
             setTimeout(() => {
                 btn.textContent = originalText;
             }, 2000);
@@ -941,9 +1947,9 @@ async function reVerify() {
         });
 
         if (result.verified) {
-            showError('✓ 验证成功！链上数据一致');
+            showError('验证成功！链上数据一致');
         } else {
-            showError(`⚠️ 验证失败: ${result.mismatches.join(', ')}`);
+            showError(`验证失败: ${result.mismatches.join(', ')}`);
         }
     } catch (error) {
         showError(`验证失败: ${error.message}`);

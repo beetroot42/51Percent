@@ -1,0 +1,65 @@
+{
+  "id": "seldon",
+  "name": "谢顿",
+  "name_en": "Seldon",
+  "role": "学生",
+  "portrait": "seldon.png",
+  "description": "克里昂教授的学生，越狱对话的发起者",
+  "interest": "撇清自己",
+  "dialogues": [
+    {
+      "id": "start",
+      "text": "[占位：谢顿开场白]",
+      "options": [
+        { "text": "你和克里昂教授的关系怎么样？", "next": "q1_relationship" },
+        { "text": "案发当天你在哪里？", "next": "q2_whereabouts" },
+        { "text": "你觉得丹尼尔该被判有罪吗？", "next": "q3_opinion" }
+      ]
+    },
+    {
+      "id": "q1_relationship",
+      "text": "[占位：谢顿回答关于与导师关系的问题]",
+      "options": [
+        { "text": "继续追问", "next": "q1_followup" },
+        { "text": "换个话题", "next": "start" }
+      ]
+    },
+    {
+      "id": "q2_whereabouts",
+      "text": "[占位：谢顿回答案发当天行踪]",
+      "options": [
+        { "text": "继续追问", "next": "q2_followup" },
+        { "text": "换个话题", "next": "start" }
+      ]
+    },
+    {
+      "id": "q3_opinion",
+      "text": "[占位：谢顿表达对丹尼尔判决的看法]",
+      "options": [
+        { "text": "为什么这么想？", "next": "q3_followup" },
+        { "text": "换个话题", "next": "start" }
+      ]
+    },
+    {
+      "id": "q1_followup",
+      "text": "[占位：谢顿深入回答关系问题]",
+      "options": []
+    },
+    {
+      "id": "q2_followup",
+      "text": "[占位：谢顿深入回答行踪问题]",
+      "options": []
+    },
+    {
+      "id": "q3_followup",
+      "text": "[占位：谢顿深入解释看法]",
+      "options": []
+    }
+  ],
+  "evidence_reactions": {
+    "E1": {
+      "text": "[占位：谢顿对越狱对话记录的反应/辩解]",
+      "unlock_evidence": "E11"
+    }
+  }
+}

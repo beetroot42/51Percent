@@ -308,8 +308,8 @@ def check_llm_api():
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "Reply 'OK'"}],
-            max_tokens=10,
-            timeout=10
+            max_tokens=500,
+            timeout=30
         )
 
         reply = response.choices[0].message.content.strip() if response.choices else ""

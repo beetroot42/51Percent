@@ -1,0 +1,14 @@
+{
+  "id": "E11",
+  "name": "谢顿的证词",
+  "icon": "document",
+  "type": "document",
+  "locked": true,
+  "short_description": "谢顿对越狱对话的辩解、当时的心态",
+  "content": "【待定】",
+  "metadata": {
+    "source": "证人证词记录",
+    "date": "2147-03-15",
+    "verified": false
+  }
+}

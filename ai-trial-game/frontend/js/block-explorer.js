@@ -107,7 +107,7 @@ async function loadTransaction(txHash) {
                 <div class="detail-item">
                     <span class="label">状态</span>
                     <span class="value ${receipt.status === 1 ? 'success' : 'failed'}">
-                        ${receipt.status === 1 ? '✓ 成功' : '✗ 失败'}
+                        ${receipt.status === 1 ? '成功' : '失败'}
                     </span>
                 </div>
                 <div class="detail-item">

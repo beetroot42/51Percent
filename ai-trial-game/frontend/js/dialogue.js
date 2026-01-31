@@ -8,6 +8,7 @@ const dialogueState = {
     dialogueTree: null,
     unlockedClues: [],
     shownEvidence: [],
+    history: [],
 };
 
 async function loadWitness(witnessId) {
@@ -28,6 +29,9 @@ function selectOption(nextNodeId) {
     const dialogues = dialogueState.dialogueTree?.dialogues || [];
     const targetNode = dialogues.find(d => d.id === nextNodeId);
     if (targetNode) {
+        if (dialogueState.currentNode) {
+            dialogueState.history.push(dialogueState.currentNode);
+        }
         dialogueState.currentNode = nextNodeId;
         if (targetNode.unlock_clue && !dialogueState.unlockedClues.includes(targetNode.unlock_clue)) {
             dialogueState.unlockedClues.push(targetNode.unlock_clue);
@@ -69,6 +73,7 @@ function resetDialogue() {
     dialogueState.dialogueTree = null;
     dialogueState.unlockedClues = [];
     dialogueState.shownEvidence = [];
+    dialogueState.history = [];
 }
 
 function isDialogueEnded() {

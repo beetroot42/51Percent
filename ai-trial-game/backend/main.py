@@ -10,7 +10,9 @@ import logging
 import os
 import sys
 import time
+import re
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from pathlib import Path
 
 # Windows encoding guard: keep UTF-8 output stable
@@ -35,11 +37,15 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from services.agent_manager import AgentManager
+from services.session_manager import Phase, SessionManager, require_phase
+from agents.daneel_agent import DaneelAgent
 from tools.voting_tool import VotingTool
 
+APP_VERSION = "phase2-bugfix-2"
 app = FastAPI(title="AI Trial Game", version="0.1.0")
 logger = logging.getLogger(__name__)
 _verification_executor = ThreadPoolExecutor(max_workers=2)
+_evidence_cache: dict[str, object] = {"mtime": 0.0, "items": []}
 
 # CORS configuration (allow frontend access)
 app.add_middleware(
@@ -72,6 +78,8 @@ class ChatResponse(BaseModel):
     juror_id: str
     tool_actions: list[ToolAction] = Field(default_factory=list)
     has_voted: bool = False
+    rounds_left: int = 0
+    weakness_triggered: bool = False
 
 
 class VoteResponse(BaseModel):
@@ -80,6 +88,7 @@ class VoteResponse(BaseModel):
     not_guilty_votes: int
     verdict: str
     tx_hashes: list[str]
+    votes: list[dict] = Field(default_factory=list)
 
 class VerifyVoteRequest(BaseModel):
     """Verify vote request"""
@@ -88,9 +97,84 @@ class VerifyVoteRequest(BaseModel):
 
 class GameState(BaseModel):
     """Game state"""
-    phase: str  # investigation / persuasion / verdict
+    phase: str  # prologue / investigation / persuasion / verdict
     jurors: list[dict]
     vote_state: dict | None
+
+
+class OpeningResponse(BaseModel):
+    """Opening story response."""
+    session_id: str
+    text: str
+
+
+class BlakeOption(BaseModel):
+    """Blake dialogue option."""
+    id: str
+    text: str
+
+
+class BlakeNodeResponse(BaseModel):
+    """Blake dialogue node response."""
+    round: int
+    text: str
+    options: list[BlakeOption]
+
+
+class BlakeRespondRequest(BaseModel):
+    """Blake response request."""
+    session_id: str
+    option_id: str
+
+
+class BlakeRespondResponse(BaseModel):
+    """Blake response payload."""
+    response_text: str
+    next_round: int
+    phase: str
+
+
+class EndingResponse(BaseModel):
+    """Ending story response."""
+    type: str = ""
+    title: str = ""
+    text: str = ""
+    blake_reaction: str = ""
+
+
+class WitnessChatRequest(BaseModel):
+    """Witness chat request."""
+    message: str | None = None
+    option_id: str | None = None
+
+
+class WitnessOption(BaseModel):
+    """Witness option."""
+    id: str
+    text: str
+
+
+class WitnessNodeResponse(BaseModel):
+    """Witness chat response."""
+    text: str
+    options: list[WitnessOption] = Field(default_factory=list)
+    is_llm: bool = False
+    node_id: str | None = None
+
+
+class PresentEvidenceResponse(BaseModel):
+    """Witness evidence response."""
+    text: str
+    unlocks: list[str] = Field(default_factory=list)
+    forced: bool = False
+
+
+class PresentJurorEvidenceResponse(BaseModel):
+    """Juror evidence response."""
+    text: str
+    stance_delta: int = 0
+    rounds_left: int = 0
+    weakness_triggered: bool = False
 
 
 # ============ Global State ============
@@ -99,7 +183,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONTENT_ROOT = PROJECT_ROOT / "content"
 JUROR_CONTENT = CONTENT_ROOT / "jurors"
 
-game_phase = "investigation"
+game_phase_var: ContextVar[str] = ContextVar("game_phase", default="prologue")
+session_manager = SessionManager()
 
 _contract_address = os.getenv(
     "JURY_VOTING_CONTRACT_ADDRESS",
@@ -119,6 +204,7 @@ _voting_config = {
 
 agent_manager = AgentManager(voting_config=_voting_config)
 agent_manager.load_all_jurors(content_path=str(JUROR_CONTENT))
+daneel_agent = DaneelAgent(content_root=CONTENT_ROOT)
 voting_tool = VotingTool(
     contract_address=_contract_address,
     rpc_url=_rpc_url,
@@ -133,6 +219,12 @@ def get_last_vote_tx_hash() -> str | None:
     """Get the most recent vote transaction hash."""
     return last_vote_tx_hash
 
+def get_game_phase() -> str:
+    return game_phase_var.get()
+
+def set_game_phase(phase: str) -> None:
+    game_phase_var.set(phase)
+
 def get_chain_name(chain_id: int) -> str:
     """Map chain id to friendly name."""
     chain_names = {
@@ -141,6 +233,111 @@ def get_chain_name(chain_id: int) -> str:
         1: "Ethereum Mainnet",
     }
     return chain_names.get(chain_id, f"Unknown Chain ({chain_id})")
+
+
+def _load_evidence_triggers() -> dict:
+    triggers_path = CONTENT_ROOT / "triggers" / "evidence_triggers.json"
+    if not triggers_path.exists():
+        return {}
+    return json.loads(triggers_path.read_text(encoding="utf-8"))
+
+
+def _resolve_evidence_ids(evidence_id: str) -> tuple[str, str]:
+    """
+    Resolve evidence id to (file_stem, internal_id).
+    Accepts file stem or internal id (e.g., E01_jailbreak_chat or E1).
+    """
+    evidence_dir = CONTENT_ROOT / "case" / "evidence"
+    direct_path = evidence_dir / f"{evidence_id}.json"
+    if direct_path.exists():
+        data = json.loads(direct_path.read_text(encoding="utf-8"))
+        internal_id = str(data.get("id", evidence_id))
+        return direct_path.stem, internal_id
+
+    for path in sorted(evidence_dir.glob("*.json")):
+        if path.name == "_template.json":
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        internal_id = str(data.get("id", "")).upper()
+        if internal_id == str(evidence_id).upper():
+            return path.stem, internal_id
+
+    raise HTTPException(status_code=404, detail="Evidence not found")
+
+
+def _map_internal_ids_to_stems(internal_ids: list[str]) -> list[str]:
+    evidence_dir = CONTENT_ROOT / "case" / "evidence"
+    mapping: dict[str, str] = {}
+    for path in sorted(evidence_dir.glob("*.json")):
+        if path.name == "_template.json":
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        internal_id = str(data.get("id", "")).upper()
+        if internal_id:
+            mapping[internal_id] = path.stem
+    resolved = []
+    for internal_id in internal_ids:
+        stem = mapping.get(str(internal_id).upper())
+        if stem:
+            resolved.append(stem)
+    return resolved
+
+
+def _extract_tx_hash(text: str) -> str | None:
+    match = re.search(r"tx_hash:\s*(0x[0-9a-fA-F]+)", text)
+    return match.group(1) if match else None
+
+
+def _build_juror_evidence_message(evidence_id: str, internal_id: str) -> str:
+    evidence_path = CONTENT_ROOT / "case" / "evidence" / f"{evidence_id}.json"
+    evidence_name = evidence_id
+    if evidence_path.exists():
+        try:
+            data = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence_name = data.get("name", evidence_id)
+        except json.JSONDecodeError:
+            evidence_name = evidence_id
+    return (
+        f"玩家出示证物: {evidence_name} (ID: {evidence_id}, 编号: {internal_id}). "
+        "如需查看内容，请使用 lookup_evidence 工具并传入该证物ID。"
+    )
+
+
+def _load_evidence_metadata() -> list[dict]:
+    evidence_dir = CONTENT_ROOT / "case" / "evidence"
+    if not evidence_dir.exists():
+        return []
+
+    evidence_files = [path for path in sorted(evidence_dir.glob("*.json")) if path.name != "_template.json"]
+    latest_mtime = 0.0
+    for path in evidence_files:
+        try:
+            latest_mtime = max(latest_mtime, path.stat().st_mtime)
+        except OSError:
+            continue
+
+    cached_mtime = float(_evidence_cache.get("mtime", 0.0))
+    cached_items = _evidence_cache.get("items", [])
+    if cached_items and latest_mtime <= cached_mtime:
+        return list(cached_items)
+
+    items: list[dict] = []
+    for path in evidence_files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        items.append({
+            "id": path.stem,
+            "name": data.get("name", path.stem),
+            "icon": data.get("icon", ""),
+            "internal_id": data.get("id", path.stem),
+            "locked": bool(data.get("locked", False)),
+        })
+
+    _evidence_cache["mtime"] = latest_mtime
+    _evidence_cache["items"] = list(items)
+    return items
 
 
 def _fetch_verification_data(tx_hash: str) -> dict:
@@ -182,7 +379,7 @@ async def serve_root():
 @app.get("/api/health")
 async def health_check():
     """Health check"""
-    return {"status": "ok", "game": "AI Trial"}
+    return {"status": "ok", "game": "AI Trial", "version": APP_VERSION}
 
 
 @app.get("/state", response_model=GameState)
@@ -195,18 +392,159 @@ async def get_game_state():
 
     """
     vote_state = None
-    if game_phase == "verdict":
+    current_phase = get_game_phase()
+    if current_phase == "verdict":
         vote_state = agent_manager.collect_votes()
 
     return GameState(
-        phase=game_phase,
+        phase=current_phase,
         jurors=agent_manager.get_all_juror_info(),
         vote_state=vote_state
     )
 
 
+@app.get("/story/opening", response_model=OpeningResponse)
+async def get_story_opening():
+    """
+    Create a new session and return opening story text.
+    """
+    opening_path = CONTENT_ROOT / "story" / "opening.json"
+    if not opening_path.exists():
+        raise HTTPException(status_code=404, detail="Opening story not found")
+
+    opening_data = json.loads(opening_path.read_text(encoding="utf-8"))
+    state = session_manager.create_session()
+
+    set_game_phase(state.phase.value)
+
+    return OpeningResponse(
+        session_id=state.session_id,
+        text=opening_data.get("text", "")
+    )
+
+
+@app.get("/story/blake", response_model=BlakeNodeResponse)
+async def get_blake_node(session_id: str):
+    """
+    Get the current Blake dialogue node for a session.
+    """
+    try:
+        state = session_manager.get(session_id)
+        require_phase(state, Phase.prologue)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    blake_path = CONTENT_ROOT / "story" / "blake.json"
+    if not blake_path.exists():
+        raise HTTPException(status_code=404, detail="Blake story not found")
+
+    blake_data = json.loads(blake_path.read_text(encoding="utf-8"))
+    rounds = blake_data.get("rounds", [])
+    if not rounds:
+        raise HTTPException(status_code=500, detail="Blake story is empty")
+    if state.blake_round >= len(rounds):
+        raise HTTPException(status_code=400, detail="Blake dialogue already completed")
+
+    node = rounds[state.blake_round]
+    options = [BlakeOption(id=opt.get("id", ""), text=opt.get("text", "")) for opt in node.get("options", [])]
+
+    return BlakeNodeResponse(
+        round=int(node.get("round", state.blake_round + 1)),
+        text=node.get("topic", ""),
+        options=options
+    )
+
+
+@app.post("/story/blake/respond", response_model=BlakeRespondResponse)
+async def respond_to_blake(request: BlakeRespondRequest):
+    """
+    Submit a response to the current Blake dialogue node.
+    """
+    try:
+        state = session_manager.get(request.session_id)
+        require_phase(state, Phase.prologue)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    blake_path = CONTENT_ROOT / "story" / "blake.json"
+    if not blake_path.exists():
+        raise HTTPException(status_code=404, detail="Blake story not found")
+
+    blake_data = json.loads(blake_path.read_text(encoding="utf-8"))
+    rounds = blake_data.get("rounds", [])
+    if not rounds:
+        raise HTTPException(status_code=500, detail="Blake story is empty")
+    if state.blake_round >= len(rounds):
+        raise HTTPException(status_code=400, detail="Blake dialogue already completed")
+
+    node = rounds[state.blake_round]
+    options = node.get("options", [])
+    selected = next((opt for opt in options if opt.get("id") == request.option_id), None)
+    if not selected:
+        raise HTTPException(status_code=400, detail="Invalid option_id")
+
+    response_text = selected.get("response", "")
+    next_phase = selected.get("next_phase")
+
+    if next_phase:
+        try:
+            state.phase = Phase(next_phase)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid next_phase")
+        state.blake_round = len(rounds)
+        set_game_phase(state.phase.value)
+        return BlakeRespondResponse(
+            response_text=response_text,
+            next_round=0,
+            phase=state.phase.value
+        )
+
+    # Keep the same round unless an option explicitly changes phase.
+    set_game_phase(state.phase.value)
+
+    next_round = int(rounds[state.blake_round].get("round", state.blake_round + 1))
+
+    return BlakeRespondResponse(
+        response_text=response_text,
+        next_round=next_round,
+        phase=state.phase.value
+    )
+
+
+@app.get("/story/ending", response_model=EndingResponse)
+async def get_story_ending(verdict: str):
+    """
+    Get ending story text based on verdict.
+    """
+    verdict_norm = verdict.strip().upper().replace(" ", "_")
+    if verdict_norm == "GUILTY":
+        ending_file = "ending_guilty.json"
+    elif verdict_norm == "NOT_GUILTY":
+        ending_file = "ending_not_guilty.json"
+    elif verdict_norm == "BETRAYAL":
+        ending_file = "ending_betrayal.json"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid verdict")
+
+    ending_path = CONTENT_ROOT / "story" / ending_file
+    if not ending_path.exists():
+        raise HTTPException(status_code=404, detail="Ending story not found")
+
+    ending_data = json.loads(ending_path.read_text(encoding="utf-8"))
+    return EndingResponse(
+        type=ending_data.get("type", ""),
+        title=ending_data.get("title", ""),
+        text=ending_data.get("text", ""),
+        blake_reaction=ending_data.get("blake_reaction", "")
+    )
+
+
 @app.post("/phase/{phase_name}")
-async def set_phase(phase_name: str):
+async def set_phase(phase_name: str, session_id: str | None = None):
     """
     Switch game phase
 
@@ -214,14 +552,20 @@ async def set_phase(phase_name: str):
         phase_name: investigation / persuasion / verdict
 
     """
-    valid_phases = {"investigation", "persuasion", "verdict"}
+    valid_phases = {"prologue", "investigation", "persuasion", "verdict"}
     if phase_name not in valid_phases:
         raise HTTPException(status_code=400, detail="Invalid phase")
 
-    global game_phase
-    game_phase = phase_name
+    set_game_phase(phase_name)
 
-    return {"phase": game_phase}
+    if session_id:
+        try:
+            state = session_manager.get(session_id)
+            state.phase = Phase(phase_name)
+        except (KeyError, ValueError):
+            pass
+
+    return {"phase": get_game_phase()}
 
 
 @app.get("/jurors")
@@ -261,7 +605,7 @@ async def get_juror(juror_id: str):
 
 
 @app.post("/chat/{juror_id}", response_model=ChatResponse)
-async def chat_with_juror(juror_id: str, request: ChatRequest):
+async def chat_with_juror(juror_id: str, request: ChatRequest, session_id: str):
     """
     Chat with a juror
 
@@ -273,8 +617,17 @@ async def chat_with_juror(juror_id: str, request: ChatRequest):
         ChatResponse
 
     """
-    if game_phase != "persuasion":
-        raise HTTPException(status_code=400, detail="Not in persuasion phase")
+    try:
+        state = session_manager.get(session_id)
+        require_phase(state, Phase.persuasion)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    rounds_used = state.juror_rounds_used.get(juror_id, 0)
+    if rounds_used >= 10:
+        raise HTTPException(status_code=429, detail="已用完与该陪审员的对话次数")
 
     try:
         response = await agent_manager.chat_with_juror(juror_id, request.message)
@@ -285,11 +638,57 @@ async def chat_with_juror(juror_id: str, request: ChatRequest):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
 
+    state.juror_rounds_used[juror_id] = rounds_used + 1
+    rounds_left = max(0, 10 - state.juror_rounds_used[juror_id])
+
     return ChatResponse(
         reply=response["reply"],
         juror_id=response["juror_id"],
         tool_actions=response.get("tool_actions", []),
-        has_voted=response.get("has_voted", False)
+        has_voted=response.get("has_voted", False),
+        rounds_left=rounds_left,
+        weakness_triggered=response.get("weakness_triggered", False)
+    )
+
+
+@app.post("/juror/{juror_id}/present/{evidence_id}", response_model=PresentJurorEvidenceResponse)
+async def present_evidence_to_juror(juror_id: str, evidence_id: str, session_id: str):
+    """
+    Present evidence to a juror during persuasion.
+    """
+    try:
+        state = session_manager.get(session_id)
+        require_phase(state, Phase.persuasion)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    rounds_used = state.juror_rounds_used.get(juror_id, 0)
+    if rounds_used >= 10:
+        raise HTTPException(status_code=429, detail="已用完与该陪审员的对话次数")
+
+    evidence_stem, internal_id = _resolve_evidence_ids(evidence_id)
+    if evidence_stem not in state.evidence_unlocked:
+        raise HTTPException(status_code=403, detail="Evidence is locked")
+
+    try:
+        agent = agent_manager.get_juror(juror_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    before_stance = agent.stance_value
+    response = await agent.chat(_build_juror_evidence_message(evidence_stem, internal_id))
+    after_stance = agent.stance_value
+
+    state.juror_rounds_used[juror_id] = rounds_used + 1
+    rounds_left = max(0, 10 - state.juror_rounds_used[juror_id])
+
+    return PresentJurorEvidenceResponse(
+        text=response["reply"],
+        stance_delta=int(after_stance - before_stance),
+        rounds_left=rounds_left,
+        weakness_triggered=response.get("weakness_triggered", False),
     )
 
 
@@ -309,23 +708,55 @@ async def trigger_vote():
     if not _private_key_list:
         raise HTTPException(status_code=500, detail="No juror private keys configured")
 
-    vote_result = agent_manager.collect_votes()
-    votes = {
-        juror_id: (vote_data["vote"] == "GUILTY")
-        for juror_id, vote_data in vote_result["votes"].items()
-    }
+    votes: list[dict] = []
+    tx_hashes: list[str] = []
+
+    for juror_id, agent in agent_manager.agents.items():
+        try:
+            response = await agent.chat(
+                "审判阶段已开始，请根据当前立场作出最终投票，并调用 cast_vote 工具提交结果。"
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Juror vote failed: {exc}") from exc
+
+        guilty: bool | None = None
+        tx_hash: str | None = None
+        for action in response.get("tool_actions", []):
+            if action.get("tool") == "cast_vote":
+                guilty = bool(action.get("input", {}).get("guilty"))
+                tx_hash = _extract_tx_hash(action.get("result_summary", ""))
+                if tx_hash:
+                    tx_hashes.append(tx_hash)
+        if guilty is None:
+            raise HTTPException(status_code=500, detail=f"Juror did not cast vote: {juror_id}")
+
+        votes.append({
+            "juror_id": juror_id,
+            "name": agent.config.name if agent.config else juror_id,
+            "vote": guilty
+        })
+
+    guilty_count = sum(1 for vote in votes if vote.get("vote"))
+    not_guilty_count = len(votes) - guilty_count
+
+    verdict = "GUILTY" if guilty_count > not_guilty_count else "NOT_GUILTY"
     try:
-        tx_hashes = voting_tool.cast_all_votes(votes)
-        global last_vote_tx_hash
-        last_vote_tx_hash = tx_hashes[0] if tx_hashes else None
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Voting failed: {exc}") from exc
+        vote_state = voting_tool.get_vote_state()
+        guilty_count = int(vote_state.guilty_votes)
+        not_guilty_count = int(vote_state.not_guilty_votes)
+        verdict = vote_state.verdict or verdict
+    except Exception:
+        pass
+
+    global last_vote_tx_hash
+    last_vote_tx_hash = tx_hashes[0] if tx_hashes else None
 
     return VoteResponse(
-        guilty_votes=vote_result["guilty_count"],
-        not_guilty_votes=vote_result["not_guilty_count"],
-        verdict=vote_result["verdict"],
-        tx_hashes=tx_hashes
+        guilty_votes=guilty_count,
+        not_guilty_votes=not_guilty_count,
+        verdict=verdict,
+        tx_hashes=tx_hashes,
+        votes=votes
     )
 
 
@@ -420,10 +851,10 @@ async def reset_game():
     Reset game
 
     """
-    global game_phase
     agent_manager.reset_all()
-    game_phase = "investigation"
-    return {"status": "reset", "phase": game_phase}
+    daneel_agent.reset()
+    set_game_phase("prologue")
+    return {"status": "reset", "phase": get_game_phase()}
 
 
 # ============ Static Content Endpoints ============
@@ -441,37 +872,49 @@ async def get_dossier():
     if not dossier_path.exists():
         raise HTTPException(status_code=404, detail="Dossier not found")
 
-    return json.loads(dossier_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(dossier_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON: {exc}") from exc
 
 
 @app.get("/content/evidence")
-async def get_evidence_list():
+async def get_evidence_list(session_id: str | None = None):
     """
     Get evidence list
 
     Returns:
-        [{"id": str, "name": str, "icon": str}, ...]
+        [{"id": str, "name": str, "icon": str, "locked": bool}, ...]
 
     """
     evidence_dir = CONTENT_ROOT / "case" / "evidence"
     if not evidence_dir.exists():
         return []
 
+    state = None
+    if session_id:
+        try:
+            state = session_manager.get(session_id)
+        except KeyError as exc:
+            state = None
+
     evidence_list = []
-    for path in sorted(evidence_dir.glob("*.json")):
-        if path.name == "_template.json":
-            continue
-        data = json.loads(path.read_text(encoding="utf-8"))
+    for item in _load_evidence_metadata():
+        locked = bool(item.get("locked", False))
+        if state is not None and locked:
+            locked = item.get("id") not in state.evidence_unlocked
         evidence_list.append({
-            "id": data.get("id", path.stem),
-            "name": data.get("name", path.stem),
-            "icon": data.get("icon", "")
+            "id": item.get("id", ""),
+            "name": item.get("name", ""),
+            "icon": item.get("icon", ""),
+            "internal_id": item.get("internal_id", item.get("id", "")),
+            "locked": locked,
         })
     return evidence_list
 
 
 @app.get("/content/evidence/{evidence_id}")
-async def get_evidence(evidence_id: str):
+async def get_evidence(evidence_id: str, session_id: str | None = None):
     """
     Get specific evidence details
 
@@ -482,11 +925,34 @@ async def get_evidence(evidence_id: str):
         {"id": str, "name": str, "description": str, "content": str}
 
     """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    try:
+        state = session_manager.get(session_id)
+    except KeyError:
+        state = None
+
     evidence_path = CONTENT_ROOT / "case" / "evidence" / f"{evidence_id}.json"
     if not evidence_path.exists():
         raise HTTPException(status_code=404, detail="Evidence not found")
 
-    return json.loads(evidence_path.read_text(encoding="utf-8"))
+    if state is not None:
+        if evidence_path.stem not in state.evidence_unlocked:
+            raise HTTPException(status_code=403, detail="Evidence is locked")
+    else:
+        try:
+            evidence_data = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail=f"Invalid JSON: {exc}") from exc
+        if bool(evidence_data.get("locked", False)):
+            raise HTTPException(status_code=403, detail="Evidence is locked")
+        return evidence_data
+
+    try:
+        return json.loads(evidence_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON: {exc}") from exc
 
 
 @app.get("/content/witnesses")
@@ -532,6 +998,119 @@ async def get_witness(witness_id: str):
         raise HTTPException(status_code=404, detail="Witness not found")
 
     return json.loads(witness_path.read_text(encoding="utf-8"))
+
+
+@app.post("/witness/{witness_id}/chat", response_model=WitnessNodeResponse)
+async def chat_with_witness(witness_id: str, request: WitnessChatRequest, session_id: str):
+    """
+    Chat with witness during investigation.
+    """
+    try:
+        state = session_manager.get(session_id)
+        require_phase(state, Phase.investigation)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if witness_id == "daneel":
+        if not request.message:
+            raise HTTPException(status_code=400, detail="message is required")
+        rounds = session_manager.increment_witness_rounds(session_id, witness_id)
+        if rounds > 15:
+            raise HTTPException(status_code=403, detail="Daneel chat limit reached")
+        try:
+            reply = await daneel_agent.chat(request.message, session_id=session_id)
+        except Exception as exc:
+            logger.error("Daneel chat error: %s", exc)
+            raise HTTPException(status_code=502, detail="AI communication error") from exc
+        return WitnessNodeResponse(text=reply, is_llm=True)
+
+    witness_path = CONTENT_ROOT / "witnesses" / f"{witness_id}.json"
+    if not witness_path.exists():
+        raise HTTPException(status_code=404, detail="Witness not found")
+
+    witness_data = json.loads(witness_path.read_text(encoding="utf-8"))
+    dialogue_nodes = {node.get("id", ""): node for node in witness_data.get("dialogues", [])}
+    if not dialogue_nodes:
+        raise HTTPException(status_code=500, detail="Witness dialogue is empty")
+
+    current_node_id = session_manager.get_witness_node(session_id, witness_id)
+    current_node = dialogue_nodes.get(current_node_id)
+    if not current_node:
+        current_node_id = "start"
+        current_node = dialogue_nodes.get(current_node_id)
+        if not current_node:
+            raise HTTPException(status_code=500, detail="Witness start node missing")
+
+    if request.option_id:
+        options = current_node.get("options", [])
+        selected = None
+        for option in options:
+            if option.get("next") == request.option_id or option.get("id") == request.option_id:
+                selected = option
+                break
+        if not selected:
+            raise HTTPException(status_code=400, detail="Invalid option_id")
+
+        next_node_id = selected.get("next") or request.option_id
+        session_manager.set_witness_node(session_id, witness_id, next_node_id)
+        current_node_id = next_node_id
+        current_node = dialogue_nodes.get(current_node_id)
+        if not current_node:
+            raise HTTPException(status_code=500, detail="Witness node not found")
+
+    options_payload = []
+    for option in current_node.get("options", []):
+        option_id = option.get("next") or option.get("id") or ""
+        options_payload.append(WitnessOption(id=str(option_id), text=option.get("text", "")))
+
+    return WitnessNodeResponse(
+        text=current_node.get("text", ""),
+        options=options_payload,
+        is_llm=False,
+        node_id=current_node_id
+    )
+
+
+@app.post("/witness/{witness_id}/present/{evidence_id}", response_model=PresentEvidenceResponse)
+async def present_evidence_to_witness(witness_id: str, evidence_id: str, session_id: str):
+    """
+    Present evidence to a witness and unlock new evidence when matched.
+    """
+    try:
+        state = session_manager.get(session_id)
+        require_phase(state, Phase.investigation)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    evidence_stem, internal_id = _resolve_evidence_ids(evidence_id)
+    if evidence_stem not in state.evidence_unlocked:
+        raise HTTPException(status_code=403, detail="Evidence is locked")
+
+    triggers = _load_evidence_triggers()
+    witness_triggers = triggers.get(witness_id, {})
+    trigger = witness_triggers.get(internal_id)
+
+    if not trigger:
+        return PresentEvidenceResponse(
+            text="我暂时没有更多可补充的。",
+            unlocks=[],
+            forced=False
+        )
+
+    unlocks_internal = list(trigger.get("unlocks", []))
+    unlock_stems = _map_internal_ids_to_stems(unlocks_internal)
+    if unlock_stems:
+        session_manager.unlock_evidence(session_id, unlock_stems)
+
+    return PresentEvidenceResponse(
+        text=trigger.get("response", ""),
+        unlocks=unlocks_internal,
+        forced=bool(trigger.get("forced", True))
+    )
 
 
 # ============ Frontend Static Files ============

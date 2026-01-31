@@ -4,162 +4,144 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI审判</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
     <div id="app">
-        <!-- 标题栏 -->
-        <header id="header">
-            <h1>AI审判</h1>
-            <div id="phase-indicator">调查阶段</div>
-        </header>
+        <!-- Header removed - integrated into phase sections -->
+
+        <!-- ============ 序章阶段 ============ -->
+        <section id="prologue-phase" class="phase-section hidden">
+            <div id="prologue-scroll-container">
+                <!-- 动态注入滚动文本 -->
+            </div>
+            
+            <footer id="prologue-footer">
+                <div id="action-trigger">CONTINUE</div>
+            </footer>
+
+            <!-- 决策分支 -->
+            <div id="choice-overlay" class="hidden">
+                 <div class="choice-title">SELECT AN ACTION</div>
+                 <div id="choice-container">
+                     <!-- 动态生成选项 -->
+                 </div>
+            </div>
+        </section>
 
         <!-- ============ 调查阶段 ============ -->
-        <section id="investigation-phase" class="phase-section">
-            <!-- 导航标签 -->
-            <nav id="investigation-tabs">
-                <button class="tab-btn active" data-tab="dossier">卷宗</button>
-                <button class="tab-btn" data-tab="evidence">证据</button>
-                <button class="tab-btn" data-tab="witnesses">当事人</button>
-            </nav>
-
-            <!-- 卷宗内容 -->
-            <div id="dossier-panel" class="tab-panel active">
-                <div id="dossier-content">
-                    <!-- TODO: 动态加载卷宗内容 -->
+        <section id="investigation-phase" class="phase-section hidden">
+            <div class="framed-container">
+                <div class="phase-header">
+                    <h2 class="phase-title">INVESTIGATION</h2>
                 </div>
-            </div>
 
-            <!-- 证据列表 -->
-            <div id="evidence-panel" class="tab-panel">
-                <div id="evidence-grid">
-                    <!-- TODO: 动态生成证据卡片 -->
-                    <!--
-                    <div class="evidence-card" data-id="xxx">
-                        <img src="assets/evidence-icon.png" alt="">
-                        <span>证据名称</span>
+                <!-- 导航标签 -->
+                <nav id="investigation-tabs">
+                    <button class="tab-btn active" data-tab="dossier">DOSSIER</button>
+                    <button class="tab-btn" data-tab="evidence">EVIDENCE</button>
+                    <button class="tab-btn" data-tab="witnesses">VITNESSES</button>
+                </nav>
+
+                <!-- 卷宗内容 -->
+                <div id="dossier-panel" class="tab-panel active">
+                    <div id="dossier-content" class="fade-in">
+                        <!-- 动态内容 -->
                     </div>
-                    -->
                 </div>
-            </div>
 
-            <!-- 当事人列表 -->
-            <div id="witnesses-panel" class="tab-panel">
-                <div id="witness-grid">
-                    <!-- TODO: 动态生成当事人卡片 -->
-                    <!--
-                    <div class="witness-card" data-id="xxx">
-                        <img src="assets/portrait.png" alt="">
-                        <span>当事人名称</span>
+                <!-- 证据列表 -->
+                <div id="evidence-panel" class="tab-panel">
+                    <div id="evidence-grid" class="fade-in">
+                        <!-- 动态生成 -->
                     </div>
-                    -->
                 </div>
-            </div>
 
-            <!-- 当事人对话弹窗 -->
-            <div id="witness-dialogue-modal" class="modal hidden">
-                <div class="modal-content">
-                    <div id="witness-portrait"></div>
-                    <div id="witness-text"></div>
-                    <div id="dialogue-options">
-                        <!-- TODO: 动态生成选项按钮 -->
+                <!-- 当事人列表 -->
+                <div id="witnesses-panel" class="tab-panel">
+                    <div id="witness-grid" class="fade-in">
+                        <!-- 动态生成 -->
                     </div>
-                    <button id="show-evidence-btn">出示证物</button>
-                    <button id="close-dialogue-btn">结束对话</button>
                 </div>
-            </div>
 
-            <!-- 证物选择弹窗 -->
-            <div id="evidence-selector-modal" class="modal hidden">
-                <div class="modal-content">
-                    <h3>选择要出示的证物</h3>
-                    <div id="evidence-selector-grid">
-                        <!-- TODO: 动态生成 -->
-                    </div>
-                    <button id="cancel-evidence-btn">取消</button>
+                <!-- Footer -->
+                <div class="phase-footer">
+                    <button id="enter-persuasion-btn" class="mono-btn">PROCEED TO PERSUASION</button>
                 </div>
-            </div>
-
-            <!-- 进入说服阶段按钮 -->
-            <div id="investigation-footer">
-                <button id="enter-persuasion-btn">我准备好了，进入说服阶段</button>
             </div>
         </section>
 
         <!-- ============ 说服阶段 ============ -->
         <section id="persuasion-phase" class="phase-section hidden">
-            <!-- 陪审员列表 -->
-            <div id="juror-list">
-                <!-- TODO: 动态生成陪审员卡片 -->
-                <!--
-                <div class="juror-card" data-id="xxx">
-                    <img src="assets/juror.png" alt="">
-                    <span>陪审员名称</span>
+            <div class="framed-container">
+                <div class="phase-header">
+                    <h2 class="phase-title">PERSUASION</h2>
                 </div>
-                -->
-            </div>
 
-            <!-- 对话区域 -->
-            <div id="chat-area">
-                <div id="chat-header">
-                    <span id="current-juror-name">选择一位陪审员</span>
+                <!-- 陪审员列表 -->
+                <div id="juror-list">
+                    <!-- 动态生成 -->
                 </div>
-                <div id="chat-messages">
-                    <!-- TODO: 动态生成消息 -->
-                    <!--
-                    <div class="message player">玩家消息</div>
-                    <div class="message juror">陪审员消息</div>
-                    -->
-                </div>
-                <div id="chat-input-area">
-                    <input type="text" id="chat-input" placeholder="输入你的话..." disabled>
-                    <button id="send-btn" disabled>发送</button>
-                </div>
-            </div>
 
-            <!-- 进入审判按钮 -->
-            <div id="persuasion-footer">
-                <button id="enter-verdict-btn">结束说服，进入审判</button>
+                <!-- 对话区域 -->
+                <div id="chat-area">
+                    <div id="chat-header" class="chat-header">
+                        <span id="current-juror-name">SELECT A JUROR</span>
+                        <span id="rounds-counter" class="rounds-badge">剩余: 10/10</span>
+                        <button id="present-evidence-btn" class="mono-btn small-btn" disabled>出示证物</button>
+                    </div>
+                    <div id="chat-messages">
+                        <!-- 动态消息 -->
+                    </div>
+                    <div id="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="Enter your argument..." disabled>
+                        <button id="send-btn" class="mono-btn" disabled>SEND</button>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="phase-footer">
+                    <button id="enter-verdict-btn" class="mono-btn">REQUEST VERDICT</button>
+                </div>
             </div>
         </section>
 
         <!-- ============ 审判阶段 ============ -->
         <section id="verdict-phase" class="phase-section hidden">
-            <!-- 投票动画区域 -->
-            <div id="voting-animation">
-                <div id="vote-progress">
-                    <!-- TODO: 动态显示每个陪审员的投票 -->
+            <div class="framed-container">
+                <div class="phase-header">
+                    <h2 class="phase-title">VERDICT</h2>
                 </div>
-            </div>
 
-            <!-- 投票统计 -->
-            <div id="vote-stats">
-                <div class="vote-count">
-                    <span class="label">有罪</span>
-                    <span id="guilty-count">0</span>
+                <!-- 投票统计 -->
+                <div id="vote-stats">
+                    <div class="vote-count">
+                        <span class="value" id="guilty-count">0</span>
+                        <span class="label">GUILTY</span>
+                    </div>
+                    <div class="vote-count">
+                        <span class="value" id="not-guilty-count">0</span>
+                        <span class="label">NOT GUILTY</span>
+                    </div>
                 </div>
-                <div class="vote-count">
-                    <span class="label">无罪</span>
-                    <span id="not-guilty-count">0</span>
+
+                <!-- 最终判决 -->
+                <div id="verdict-result" class="hidden fade-in">
+                    <h2 id="verdict-text"></h2>
+                    <p id="verdict-description"></p>
                 </div>
-            </div>
 
-            <!-- 最终判决 -->
-            <div id="verdict-result" class="hidden">
-                <h2 id="verdict-text"></h2>
-                <p id="verdict-description"></p>
-            </div>
-
-            <!-- 重新开始 -->
-            <div id="verdict-footer">
-                <button id="restart-btn">重新开始</button>
+                <!-- Footer -->
+                <div class="phase-footer">
+                    <button id="restart-btn" class="mono-btn">RESTART TRIAL</button>
+                </div>
             </div>
         </section>
 
         <!-- 链上验证面板 -->
         <div class="verification-panel hidden" id="verification-panel">
             <div class="verification-header">
-                <span class="icon">🔍</span>
+                <span class="icon icon-search" aria-hidden="true"></span>
                 <h3>区块链验证</h3>
                 <span class="status" id="verification-status">验证中...</span>
             </div>
@@ -192,7 +174,9 @@
                             <span class="label">交易哈希</span>
                             <span class="value tx-hash" id="tx-hash">
                                 <span id="tx-hash-value"></span>
-                                <button class="copy-btn" onclick="copyTxHash()" title="复制">📋</button>
+                            <button class="copy-btn" onclick="copyTxHash()" title="复制">
+                                <span class="icon icon-copy" aria-hidden="true"></span>
+                            </button>
                             </span>
                         </div>
                         <div class="data-row">
@@ -207,23 +191,23 @@
                         <div class="comparison-row">
                             <span class="label">有罪票数</span>
                             <span class="chain-value" id="chain-guilty"></span>
-                            <span class="match-icon" id="guilty-match">✓</span>
+                            <span class="match-icon" id="guilty-match">OK</span>
                         </div>
                         <div class="comparison-row">
                             <span class="label">无罪票数</span>
                             <span class="chain-value" id="chain-not-guilty"></span>
-                            <span class="match-icon" id="not-guilty-match">✓</span>
+                            <span class="match-icon" id="not-guilty-match">OK</span>
                         </div>
                     </div>
 
                     <!-- 操作按钮 -->
                     <div class="verification-actions">
                         <button class="btn-verify" onclick="reVerify()">
-                            <span class="icon">🔄</span>
+                            <span class="icon icon-refresh" aria-hidden="true"></span>
                             重新验证
                         </button>
                         <button class="btn-explorer" onclick="openBlockExplorer()">
-                            <span class="icon">🔗</span>
+                            <span class="icon icon-link" aria-hidden="true"></span>
                             查看区块详情
                         </button>
                     </div>
@@ -260,6 +244,47 @@
             </div>
         </div>
 
+        <!-- 当事人对话弹窗 -->
+        <div id="witness-dialogue-modal" class="modal hidden">
+            <div class="modal-content" tabindex="-1">
+                <div id="witness-portrait"></div>
+
+                <!-- Standard Dialogue Text -->
+                <div id="witness-text"></div>
+
+                <!-- Daneel Chat Interface -->
+                <div id="daneel-chat-container" class="hidden">
+                    <div id="daneel-chat-history"></div>
+                    <div class="chat-input-row" style="display:flex; gap:10px; margin-top:15px;">
+                        <input type="text" id="daneel-input" class="mono-input" placeholder="Interrogate the accused..." aria-label="向丹尼尔发送消息" style="flex:1;">
+                        <button id="daneel-send-btn" class="mono-btn">SEND</button>
+                    </div>
+                </div>
+
+                <div id="dialogue-options">
+                    <!-- 动态生成选项按钮 -->
+                </div>
+                <div class="modal-actions">
+                    <button id="back-dialogue-btn" class="mono-btn">返回</button>
+                    <button id="show-evidence-btn" class="mono-btn">出示证物</button>
+                    <button id="close-dialogue-btn" class="mono-btn">结束对话</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 证物选择弹窗 -->
+        <div id="evidence-selector-modal" class="modal hidden">
+            <div class="modal-content" tabindex="-1">
+                <h3>选择要出示的证物</h3>
+                <div id="evidence-selector-grid">
+                    <!-- 动态生成 -->
+                </div>
+                <div class="modal-actions">
+                    <button id="cancel-evidence-btn" class="mono-btn">取消</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 全局加载指示器 -->
         <div id="loading-overlay" class="hidden">
             <div class="spinner"></div>
@@ -269,8 +294,8 @@
         <div id="error-toast" class="hidden"></div>
     </div>
 
-    <script src="js/api.js"></script>
-    <script src="js/dialogue.js"></script>
-    <script src="js/game.js"></script>
+    <script src="js/api.js?v=6"></script>
+    <script src="js/dialogue.js?v=6"></script>
+    <script src="js/game.js?v=6"></script>
 </body>
 </html>

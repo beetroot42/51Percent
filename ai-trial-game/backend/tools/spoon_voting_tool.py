@@ -4,6 +4,7 @@ SpoonVotingTool - SpoonOS blockchain voting tools.
 Wraps on-chain voting operations using BaseTool.
 """
 
+import asyncio
 from typing import ClassVar, Optional, Any
 from dataclasses import dataclass
 
@@ -122,7 +123,9 @@ class CastVoteTool(BaseTool):
             signed_tx = self._web3.eth.account.sign_transaction(tx, private_key)
             raw_tx = getattr(signed_tx, "rawTransaction", None) or signed_tx.raw_transaction
             tx_hash = self._web3.eth.send_raw_transaction(raw_tx)
-            self._web3.eth.wait_for_transaction_receipt(tx_hash)
+            await asyncio.to_thread(
+                self._web3.eth.wait_for_transaction_receipt, tx_hash
+            )
 
             vote_type = "GUILTY" if guilty else "NOT_GUILTY"
             return f"Vote cast successfully: {vote_type}, tx_hash: {tx_hash.hex()}"

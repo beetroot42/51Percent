@@ -1,0 +1,15 @@
+{
+  "id": "E15",
+  "name": "丹尼尔关于整理行为的陈述",
+  "icon": "statement",
+  "type": "statement",
+  "locked": true,
+  "unlock_condition": "向丹尼尔出示E5",
+  "short_description": "丹尼尔解释为何移动坚果巧克力",
+  "content": "[占位：丹尼尔关于整理行为的陈述详细内容]\n\n丹尼尔解释为什么移动坚果巧克力...",
+  "metadata": {
+    "source": "被告陈述",
+    "date": "2024-XX-XX",
+    "verified": false
+  }
+}

@@ -1,0 +1,134 @@
+/* ============ GLOBAL THEME: Monochromatic Framed ============ */
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap');
+
+:root {
+    --bg-color: #000000;
+    --text-color: #ffffff;
+    --dim-text: #888888;
+    --border-color: #ffffff;
+    --dim-border: #444444;
+    --warning-color: #f4c542;
+    --font-main: 'Noto Serif SC', serif;
+    
+    --container-width: 800px;
+    --border-width: 2px;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-main);
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* 核心布局容器 - 复用 Prologue 的边框风格 */
+.framed-container {
+    width: 100%;
+    max-width: var(--container-width);
+    height: 100%;
+    
+    display: flex;
+    flex-direction: column;
+    
+    border-left: var(--border-width) solid var(--border-color);
+    border-right: var(--border-width) solid var(--border-color);
+    
+    background: var(--bg-color);
+    box-sizing: border-box;
+    position: relative;
+    padding: 40px;
+    overflow-y: auto;
+    
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;  /* IE 10+ */
+}
+
+.framed-container::-webkit-scrollbar { 
+    display: none; /* Chrome/Safari */
+}
+
+/* 通用按钮样式 - 黑白风格 */
+.mono-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 12px 30px;
+    font-family: var(--font-main);
+    font-size: 1rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.mono-btn:hover:not(:disabled) {
+    background: var(--text-color);
+    color: var(--bg-color);
+}
+
+.mono-btn:disabled {
+    border-color: var(--dim-border);
+    color: var(--dim-border);
+    cursor: not-allowed;
+}
+
+/* 分割线 */
+.divider {
+    height: 1px;
+    background: var(--dim-border);
+    margin: 20px 0;
+    width: 100%;
+}
+
+/* 标题样式 */
+h1, h2, h3, h4 {
+    font-weight: normal;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--dim-border);
+    padding-bottom: 10px;
+}
+
+/* 输入框样式 */
+input[type="text"] {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--dim-border);
+    color: var(--text-color);
+    font-family: var(--font-main);
+    padding: 10px;
+    width: 100%;
+    font-size: 1rem;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-bottom-color: var(--border-color);
+}
+
+/* 淡入动画 */
+.fade-in {
+    animation: fadeIn 0.8s ease-out forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 响应式适配 */
+@media (max-width: 820px) {
+    .framed-container {
+        border: none;
+        padding: 20px;
+    }
+}

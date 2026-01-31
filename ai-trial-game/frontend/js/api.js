@@ -49,8 +49,9 @@ async function getGameState() {
     return request('/state');
 }
 
-async function setPhase(phase) {
-    return request(`/phase/${phase}`, { method: 'POST' });
+async function setPhase(phase, sessionId) {
+    const query = sessionId ? `?session_id=${sessionId}` : '';
+    return request(`/phase/${phase}${query}`, { method: 'POST' });
 }
 
 async function resetGame() {
@@ -59,18 +60,32 @@ async function resetGame() {
 
 // ============ 陪审员 ============
 
-async function getJurors() {
-    return request('/jurors');
+async function getJurors(sessionId) {
+    const query = sessionId ? `?session_id=${sessionId}` : '';
+    return request(`/jurors${query}`);
 }
 
-async function getJuror(jurorId) {
-    return request(`/juror/${jurorId}`);
+async function getJuror(jurorId, sessionId) {
+    const query = sessionId ? `?session_id=${sessionId}` : '';
+    return request(`/juror/${jurorId}${query}`);
 }
 
-async function chatWithJuror(jurorId, message) {
-    return request(`/chat/${jurorId}`, {
+async function chatWithJuror(jurorId, message, sessionId) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/chat/${jurorId}?session_id=${sessionId}`, {
         method: 'POST',
         body: JSON.stringify({ message })
+    });
+}
+
+async function presentEvidenceToJuror(jurorId, evidenceId, sessionId) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/juror/${jurorId}/present/${evidenceId}?session_id=${sessionId}`, {
+        method: 'POST'
     });
 }
 
@@ -89,12 +104,14 @@ async function getDossier() {
     return request('/content/dossier');
 }
 
-async function getEvidenceList() {
-    return request('/content/evidence');
+async function getEvidenceList(sessionId) {
+    const query = sessionId ? `?session_id=${sessionId}` : '';
+    return request(`/content/evidence${query}`);
 }
 
-async function getEvidence(evidenceId) {
-    return request(`/content/evidence/${evidenceId}`);
+async function getEvidence(evidenceId, sessionId) {
+    const query = sessionId ? `?session_id=${sessionId}` : '';
+    return request(`/content/evidence/${evidenceId}${query}`);
 }
 
 async function getWitnessList() {
@@ -103,4 +120,41 @@ async function getWitnessList() {
 
 async function getWitness(witnessId) {
     return request(`/content/witness/${witnessId}`);
+}
+
+async function witnessChat(witnessId, sessionId, body) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/witness/${witnessId}/chat?session_id=${sessionId}`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+}
+
+async function presentEvidence(witnessId, evidenceId, sessionId) {
+    return request(`/witness/${witnessId}/present/${evidenceId}?session_id=${sessionId}`, {
+        method: 'POST'
+    });
+}
+
+// ============ 序章 (Prologue) ============
+
+async function getOpening() {
+    return request('/story/opening');
+}
+
+async function getBlakeNode(sessionId) {
+    return request(`/story/blake?session_id=${sessionId}`);
+}
+
+async function respondToBlake(sessionId, optionId) {
+    return request('/story/blake/respond', {
+        method: 'POST',
+        body: JSON.stringify({ session_id: sessionId, option_id: optionId })
+    });
+}
+
+async function getEnding(verdict) {
+    return request(`/story/ending?verdict=${encodeURIComponent(verdict)}`);
 }

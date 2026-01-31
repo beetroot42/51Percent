@@ -1,0 +1,15 @@
+{
+  "id": "E13",
+  "name": "丹尼尔关于指令解读的陈述",
+  "icon": "statement",
+  "type": "statement",
+  "locked": true,
+  "unlock_condition": "向丹尼尔出示E1",
+  "short_description": "丹尼尔解释如何理解谢顿的越狱对话",
+  "content": "[占位：丹尼尔关于指令解读的陈述详细内容]\n\n丹尼尔解释它如何理解那些指令...",
+  "metadata": {
+    "source": "被告陈述",
+    "date": "2024-XX-XX",
+    "verified": false
+  }
+}

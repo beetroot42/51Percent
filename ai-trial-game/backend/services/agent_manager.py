@@ -7,6 +7,8 @@ Responsibilities:
 - Collect votes and compute verdicts
 """
 
+import json
+import re
 from pathlib import Path
 
 from agents.spoon_juror_agent import SpoonJurorAgent
@@ -37,11 +39,29 @@ class AgentManager:
         content_dir = self._resolve_content_path(content_path)
 
         if not self.juror_ids:
-            self.juror_ids = [
-                path.stem
-                for path in sorted(content_dir.glob("*.json"))
-                if path.name != "_template.json" and not path.name.startswith("test_")
-            ]
+            juror_files: dict[str, Path] = {}
+            for path in sorted(content_dir.glob("*.json")):
+                if path.name == "_template.json" or path.name.startswith("test_"):
+                    continue
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                juror_id = str(data.get("id", path.stem))
+                existing = juror_files.get(juror_id)
+                if existing is None:
+                    juror_files[juror_id] = path
+                else:
+                    if path.stem.isascii() and not existing.stem.isascii():
+                        juror_files[juror_id] = path
+
+            def _sort_key(value: str) -> tuple[int, int | str]:
+                match = re.match(r"^j(\d+)$", value.lower())
+                if match:
+                    return (0, int(match.group(1)))
+                return (1, value)
+
+            self.juror_ids = sorted(juror_files.keys(), key=_sort_key)
 
         for index, juror_id in enumerate(self.juror_ids):
             if juror_id not in self.agents:
@@ -99,6 +119,8 @@ class AgentManager:
                 "id": juror_id,
                 "name": agent.config.name if agent.config else "",
                 "first_message": agent.get_first_message(),
+                "codename": agent.config.codename if agent.config else "",
+                "stance_label": agent._get_stance_label(),
             })
         return info_list
 
@@ -122,16 +144,16 @@ class AgentManager:
         not_guilty_count = 0
 
         for juror_id, agent in self.agents.items():
-            not_guilty = agent.get_final_vote()
-            vote_label = "NOT_GUILTY" if not_guilty else "GUILTY"
+            guilty = agent.get_final_vote()
+            vote_label = "GUILTY" if guilty else "NOT_GUILTY"
             votes[juror_id] = {
                 "name": agent.config.name if agent.config else juror_id,
                 "vote": vote_label
             }
-            if not_guilty:
-                not_guilty_count += 1
-            else:
+            if guilty:
                 guilty_count += 1
+            else:
+                not_guilty_count += 1
 
         verdict = "NOT_GUILTY" if not_guilty_count >= guilty_count else "GUILTY"
 

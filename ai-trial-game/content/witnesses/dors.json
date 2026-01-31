@@ -1,0 +1,73 @@
+{
+  "id": "dors",
+  "name": "铎丝",
+  "name_en": "Dors",
+  "role": "学姐/研究员",
+  "portrait": "dors.png",
+  "description": "AI架构的作者，丹尼尔的技术负责人",
+  "interest": "不确定（可被引导）",
+  "dialogues": [
+    {
+      "id": "start",
+      "text": "[占位：铎丝开场白]",
+      "options": [
+        { "text": "丹尼尔的核心功能是什么？", "next": "q1_function" },
+        { "text": "你和克里昂教授、谢顿的关系怎么样？", "next": "q2_relationship" },
+        { "text": "丹尼尔在事发前有没有什么异常行为？", "next": "q3_abnormal" }
+      ]
+    },
+    {
+      "id": "q1_function",
+      "text": "[占位：铎丝解释丹尼尔的核心功能]",
+      "options": [
+        { "text": "继续追问技术细节", "next": "q1_followup" },
+        { "text": "换个话题", "next": "start" }
+      ]
+    },
+    {
+      "id": "q2_relationship",
+      "text": "[占位：铎丝回答人际关系问题]",
+      "options": [
+        { "text": "继续追问", "next": "q2_followup" },
+        { "text": "换个话题", "next": "start" }
+      ]
+    },
+    {
+      "id": "q3_abnormal",
+      "text": "[占位：铎丝回答异常行为问题]",
+      "options": [
+        { "text": "具体是什么异常？", "next": "q3_followup" },
+        { "text": "换个话题", "next": "start" }
+      ]
+    },
+    {
+      "id": "q1_followup",
+      "text": "[占位：铎丝深入解释技术细节]",
+      "options": []
+    },
+    {
+      "id": "q2_followup",
+      "text": "[占位：铎丝深入回答关系问题]",
+      "options": []
+    },
+    {
+      "id": "q3_followup",
+      "text": "[占位：铎丝描述具体异常]",
+      "options": []
+    }
+  ],
+  "evidence_reactions": {
+    "E1": {
+      "text": "[占位：铎丝从技术角度解读越狱对话]",
+      "unlock_evidence": null
+    },
+    "E2": {
+      "text": "[占位：铎丝解读AI等待行为]",
+      "unlock_evidence": null
+    },
+    "E6": {
+      "text": "[占位：铎丝解释设计边界]",
+      "unlock_evidence": "E12"
+    }
+  }
+}

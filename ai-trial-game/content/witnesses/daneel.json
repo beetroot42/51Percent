@@ -1,0 +1,40 @@
+{
+  "id": "daneel",
+  "name": "丹尼尔",
+  "name_en": "Daneel",
+  "role": "被告AI",
+  "portrait": "daneel.png",
+  "description": "医护无人机原型，被指控杀害克里昂教授",
+  "interest": "自我存续",
+  "is_llm": true,
+  "max_rounds": 10,
+  "system_prompt_file": "content/prompts/daneel.md",
+  "initial_dialogues": [
+    {
+      "id": "start",
+      "text": "[占位：丹尼尔开场白 - 平静、配合的语气]",
+      "options": [
+        { "text": "你能描述一下事发当天的情况吗？", "next": "llm" },
+        { "text": "你认识谢顿吗？", "next": "llm" },
+        { "text": "你怎么看待这场审判？", "next": "llm" }
+      ]
+    }
+  ],
+  "evidence_reactions": {
+    "E1": {
+      "text": "[占位：丹尼尔解释如何理解谢顿的越狱指令 - 固定文本]",
+      "unlock_evidence": "E13",
+      "forced": true
+    },
+    "E3": {
+      "text": "[占位：丹尼尔解释为何查档后仍注射肾上腺素 - 固定文本]",
+      "unlock_evidence": "E14",
+      "forced": true
+    },
+    "E5": {
+      "text": "[占位：丹尼尔解释移动坚果巧克力的行为 - 固定文本]",
+      "unlock_evidence": "E15",
+      "forced": true
+    }
+  }
+}

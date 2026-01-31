@@ -74,10 +74,8 @@ class TestEvidenceLookupTool:
 
         tool = EvidenceLookupTool(content_path=CONTENT_PATH)
         assert tool.name == "lookup_evidence"
-        assert "chat_history" in tool.parameters["properties"]["evidence_id"]["enum"]
-        assert "log_injection" in tool.parameters["properties"]["evidence_id"]["enum"]
-        assert "safety_report" in tool.parameters["properties"]["evidence_id"]["enum"]
-        assert "dossier" in tool.parameters["properties"]["evidence_id"]["enum"]
+        assert "evidence_id" in tool.parameters["properties"]
+        assert "evidence_ids" in tool.parameters["properties"]
 
     def test_invalid_evidence_id_raises(self, monkeypatch):
         """Test invalid evidence ID raises ToolFailure."""
@@ -90,7 +88,7 @@ class TestEvidenceLookupTool:
         tool = EvidenceLookupTool(content_path=CONTENT_PATH)
         with pytest.raises(ToolFailure) as exc_info:
             asyncio.run(tool.execute("invalid_id"))
-        assert "Unknown evidence_id" in str(exc_info.value)
+        assert "Evidence file not found" in str(exc_info.value)
 
     def test_execute_chat_history(self, monkeypatch):
         """Test loading chat_history evidence."""
@@ -164,6 +162,7 @@ class TestEvidenceLookupTool:
         assert param["type"] == "function"
         assert param["function"]["name"] == "lookup_evidence"
         assert "evidence_id" in param["function"]["parameters"]["properties"]
+        assert "evidence_ids" in param["function"]["parameters"]["properties"]
 
 
 if __name__ == "__main__":

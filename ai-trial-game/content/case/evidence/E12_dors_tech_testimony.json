@@ -1,0 +1,14 @@
+{
+  "id": "E12",
+  "name": "铎丝的技术证词",
+  "icon": "document",
+  "type": "document",
+  "locked": true,
+  "short_description": "丹尼尔的设计边界、是否在预期范围内",
+  "content": "【待定】",
+  "metadata": {
+    "source": "技术证词记录",
+    "date": "2147-03-15",
+    "verified": false
+  }
+}

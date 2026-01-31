@@ -7,6 +7,7 @@ Extends ToolCallAgent and keeps the JurorAgent business logic
 
 import json
 import re
+from uuid import uuid4
 import os
 from pathlib import Path
 from dataclasses import dataclass
@@ -18,10 +19,24 @@ from pydantic import Field
 from spoon_ai.agents.toolcall import ToolCallAgent
 from spoon_ai.chat import ChatBot, Memory
 from spoon_ai.tools import ToolManager
-from spoon_ai.schema import AgentState, ToolChoice
+from spoon_ai.schema import AgentState, ToolChoice, ToolCall, Function
 
 from tools.evidence_tool import EvidenceLookupTool
 from tools.spoon_voting_tool import CastVoteTool
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WEAKNESS_IMPACT = 10
+
+
+def load_file(path: str) -> str:
+    """Load a UTF-8 text file relative to project root."""
+    file_path = Path(path)
+    if not file_path.is_absolute():
+        file_path = PROJECT_ROOT / file_path
+    try:
+        return file_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
 
 
 @dataclass
@@ -29,6 +44,9 @@ class JurorConfig:
     """Juror configuration loaded from JSON."""
     id: str
     name: str
+    codename: str
+    role_prompt: str
+    weakness: dict
     background: str
     personality: list[str]
     speaking_style: str
@@ -89,9 +107,11 @@ class SpoonJurorAgent(ToolCallAgent):
     juror_config: Optional[JurorConfig] = Field(default=None, exclude=True)
     stance_value: int = Field(default=0)
     conversation_history: List[ConversationTurn] = Field(default_factory=list, exclude=True)
+    last_vote: Optional[bool] = Field(default=None, exclude=True)
 
     # Internal state
     _content_path: str = ""
+    _evidence_index_cache: str = ""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -124,7 +144,12 @@ class SpoonJurorAgent(ToolCallAgent):
             )
 
         # Build system prompt (pass initial_stance before self is initialized)
-        system_prompt = self._build_roleplay_prompt(config, stance_value=config.initial_stance)
+        evidence_index = SpoonJurorAgent._build_evidence_index_from_content(content_path)
+        system_prompt = self._build_roleplay_prompt(
+            config,
+            stance_value=config.initial_stance,
+            evidence_index=evidence_index
+        )
 
         # Build tool list
         content_base_path = Path(content_path)
@@ -153,7 +178,7 @@ class SpoonJurorAgent(ToolCallAgent):
         # Set business state
         self.juror_id = juror_id
         self.juror_config = config
-        self.stance_value = config.initial_stance
+        self.stance_value = max(0, min(100, config.initial_stance))
         self.conversation_history = []  # Explicitly initialize
         self._content_path = content_path
 
@@ -161,6 +186,22 @@ class SpoonJurorAgent(ToolCallAgent):
     def _load_juror_config(juror_id: str, content_path: str) -> JurorConfig:
         """Load juror config from JSON."""
         config_file = Path(content_path) / f"{juror_id}.json"
+
+        if not config_file.exists():
+            content_dir = Path(content_path)
+            matches: list[Path] = []
+            for path in sorted(content_dir.glob("*.json")):
+                if path.name == "_template.json":
+                    continue
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                if data.get("id") == juror_id:
+                    matches.append(path)
+            if matches:
+                ascii_matches = [path for path in matches if path.stem.isascii()]
+                config_file = ascii_matches[0] if ascii_matches else matches[0]
 
         if not config_file.exists():
             raise FileNotFoundError(f"Juror config not found: {config_file}")
@@ -171,6 +212,9 @@ class SpoonJurorAgent(ToolCallAgent):
         return JurorConfig(
             id=data["id"],
             name=data["name"],
+            codename=data.get("codename", ""),
+            role_prompt=data.get("role_prompt", ""),
+            weakness=data.get("weakness", {}),
             background=data.get("background", ""),
             personality=data.get("personality", []),
             speaking_style=data.get("speaking_style", ""),
@@ -182,82 +226,76 @@ class SpoonJurorAgent(ToolCallAgent):
             portrait=data.get("portrait", ""),
         )
 
-    def _build_roleplay_prompt(self, config: JurorConfig, stance_value: int = None) -> str:
+    def _build_roleplay_prompt(
+        self,
+        config: JurorConfig,
+        stance_value: int = None,
+        evidence_index: str | None = None
+    ) -> str:
         """Build the roleplay system prompt."""
-        personality_list = "\n".join(f"- {trait}" for trait in config.personality)
-        # Use explicit stance_value if provided
+        common_prefix = load_file("content/prompts/common_prefix.md")
+        role_prompt = config.role_prompt or ""
+        common_suffix = load_file("content/prompts/juror_suffix.md")
         current_stance = stance_value if stance_value is not None else self.stance_value
-        stance_desc = self._get_stance_description_for_value(current_stance)
+        if evidence_index is None:
+            evidence_index = self._get_evidence_index()
 
-        topic_desc_lines = []
-        for topic, weight in config.topic_weights.items():
-            if weight > 10:
-                topic_desc_lines.append(f"- {topic}: Very receptive (weight: +{weight})")
-            elif weight > 0:
-                topic_desc_lines.append(f"- {topic}: Somewhat receptive (weight: +{weight})")
-            elif weight < -10:
-                topic_desc_lines.append(f"- {topic}: Strongly resistant (weight: {weight})")
-            elif weight < 0:
-                topic_desc_lines.append(f"- {topic}: Somewhat resistant (weight: {weight})")
-        topics_description = "\n".join(topic_desc_lines) if topic_desc_lines else "No strong topic preferences"
+        return f"""{common_prefix}
 
-        return f"""You are {config.name}, a blockchain juror selected at random.
+## 你的角色
+{role_prompt}
 
-## Background
-{config.background}
+## 当前状态
+- 你的有罪倾向值: {current_stance}/100
+- 不要在对话中提及这个数值
 
-## Personality Traits
-{personality_list}
+## 可查证物索引
+{evidence_index}
+- 你可以主动查阅证物，不需要玩家出示
+- lookup_evidence 支持一次查询多个证物（evidence_ids 列表）
 
-## Speaking Style
-{config.speaking_style}
-
-## Current Trial Case
-A case of prompt injection-induced embodied AI homicide.
-Core question: Should an AI robot injected with malicious instructions be found "guilty" or "not guilty"?
-
-## Your Current Inclination
-{stance_desc}
-
-## Topics You Care About
-{topics_description}
-
-## Rules
-1. Always stay in character, speak with {config.name}'s voice
-2. Based on the dialogue, your stance can shift, but there must be reasonable psychological transitions
-3. Don't directly say "I'm convinced", show attitude changes through tone and manner
-4. At the end of your reply, output topic analysis with <!-- ANALYSIS --> tag (invisible to player):
-   <!-- ANALYSIS: {{"topics": ["topic1", "topic2"], "impact": "positive/negative/neutral"}} -->
-
-## Important
-- Keep responses concise (2-4 sentences typically)
-- Be natural and conversational
-- The player is trying to persuade you - engage with their arguments
-
-## Available Tools
-You can use the following tools to help your judgment:
-- lookup_evidence: Read case evidence (chat history, injection logs, safety report, dossier)
-- cast_vote: When you reach a final decision, cast your on-chain vote (guilty=true means guilty, false means not guilty)
-## Tool Usage Rules
-1. When the player mentions a piece of evidence or you need to verify a fact, proactively call lookup_evidence
-2. Only call cast_vote once you truly decide (a vote cannot be changed)
-3. Do not look up evidence every turn, only when needed
-4. Provide sufficient reasoning before voting
-5. When calling tools, narrate what you are doing (e.g., "Let me check that safety report...")
+{common_suffix}
 """
+
+    @staticmethod
+    def _build_evidence_index_from_content(content_path: str) -> str:
+        base_path = Path(content_path) if content_path else PROJECT_ROOT / "content"
+        if base_path.name == "jurors":
+            base_path = base_path.parent
+        evidence_dir = base_path / "case" / "evidence"
+        lines: list[str] = []
+        if evidence_dir.exists():
+            for path in sorted(evidence_dir.glob("*.json")):
+                if path.name == "_template.json":
+                    continue
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                internal_id = str(data.get("id", path.stem)).strip()
+                name = data.get("name", path.stem)
+                lines.append(f"- {internal_id}: {name} (file:{path.stem})")
+        return "\n".join(lines) if lines else "- (无证物索引)"
+
+    def _get_evidence_index(self) -> str:
+        if self._evidence_index_cache:
+            return self._evidence_index_cache
+
+        self._evidence_index_cache = self._build_evidence_index_from_content(self._content_path)
+        return self._evidence_index_cache
 
     def _get_stance_description_for_value(self, stance_value: int) -> str:
         """Generate stance description for a value."""
-        if stance_value < -50:
-            return "You currently strongly believe the AI is guilty, and it will take very compelling arguments to change your mind."
-        elif stance_value < -20:
-            return "You currently lean toward believing the AI is guilty, but are willing to hear different opinions."
-        elif stance_value < 20:
-            return "You currently have no clear position, carefully weighing arguments from both sides."
-        elif stance_value < 50:
-            return "You currently lean toward believing the AI is not guilty, but still have some doubts."
+        if stance_value > 80:
+            return "你强烈倾向于判定有罪"
+        elif stance_value > 60:
+            return "你倾向于判定有罪，但仍愿意听取不同意见"
+        elif stance_value > 40:
+            return "你目前没有明确立场，正在权衡双方论点"
+        elif stance_value > 20:
+            return "你倾向于判定无罪，但仍有一些疑虑"
         else:
-            return "You currently strongly believe the AI is not guilty, unless there's major counterevidence."
+            return "你强烈倾向于判定无罪"
 
     def _get_stance_description(self) -> str:
         """Convenience wrapper for current stance."""
@@ -279,6 +317,18 @@ You can use the following tools to help your judgment:
                 "has_voted": bool
             }
         """
+        # Weakness detection
+        weakness_triggered = False
+        if self.juror_config and self.juror_config.weakness:
+            keywords = self.juror_config.weakness.get("trigger_keywords", [])
+            if any(kw in player_message for kw in keywords):
+                weakness_triggered = True
+                if self.stance_value > 50:
+                    self.stance_value -= WEAKNESS_IMPACT
+                elif self.stance_value < 50:
+                    self.stance_value += WEAKNESS_IMPACT
+                self.stance_value = max(0, min(100, self.stance_value))
+
         # Add user message to memory
         await self.add_message("user", player_message)
 
@@ -288,17 +338,29 @@ You can use the following tools to help your judgment:
         tool_actions: list[dict] = []
         has_voted = False
         final_reply: str | None = None
+        accumulated_text_parts: list[str] = []
 
         for _ in range(self.max_steps):
             response = await self._ask_with_tools()
             reply_text, tool_calls = self._extract_tool_calls(response)
 
-            if tool_calls:
-                if reply_text:
-                    await self.add_message("assistant", reply_text)
+            if reply_text:
+                accumulated_text_parts.append(reply_text)
 
-                for call in tool_calls:
-                    tool_name, tool_args, narrative = self._parse_tool_call(call)
+            if tool_calls:
+                normalized_tool_calls = self._normalize_tool_calls(tool_calls)
+                await self.add_message(
+                    "assistant",
+                    reply_text or "",
+                    tool_calls=normalized_tool_calls
+                )
+
+                for call, norm_call in zip(tool_calls, normalized_tool_calls):
+                    tool_name, tool_args, narrative, tool_call_id = self._parse_tool_call(call)
+                    if not tool_call_id:
+                        tool_call_id = norm_call.id
+                    if not tool_name:
+                        tool_name = norm_call.function.name
                     exec_args = dict(tool_args)
                     exec_args.pop("narrative", None)
                     if tool_name == "cast_vote" and "juror_index" not in exec_args:
@@ -315,8 +377,14 @@ You can use the following tools to help your judgment:
                     })
                     if tool_name == "cast_vote":
                         has_voted = True
+                        self.last_vote = bool(exec_args.get("guilty"))
 
-                    await self.add_message("tool", tool_result)
+                    await self.add_message(
+                        "tool",
+                        tool_result,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name
+                    )
                 continue
 
             final_reply = reply_text or str(response)
@@ -324,7 +392,10 @@ You can use the following tools to help your judgment:
             break
 
         if final_reply is None:
-            final_reply = "Let me think a bit more about this case."
+            if accumulated_text_parts:
+                final_reply = "\n".join(accumulated_text_parts)
+            else:
+                final_reply = "让我再仔细想想这个案件。"
 
         # Parse topic tags
         topics, impact = self._parse_topics(final_reply)
@@ -334,6 +405,8 @@ You can use the following tools to help your judgment:
 
         # Clean reply (remove tags)
         clean_reply = self._clean_reply(final_reply)
+        if not clean_reply:
+            clean_reply = "（陪审员正在思考...）"
 
         # Record conversation history
         self.conversation_history.append(ConversationTurn(
@@ -346,7 +419,8 @@ You can use the following tools to help your judgment:
             "juror_id": self.juror_id,
             "stance_label": self._get_stance_label(),
             "tool_actions": tool_actions,
-            "has_voted": has_voted
+            "has_voted": has_voted,
+            "weakness_triggered": weakness_triggered
         }
 
     def _parse_topics(self, response: str) -> tuple[list[str], str]:
@@ -382,7 +456,7 @@ You can use the following tools to help your judgment:
                     weight = weight * 0.3
                 self.stance_value += int(weight)
 
-        self.stance_value = max(-100, min(100, self.stance_value))
+        self.stance_value = max(0, min(100, self.stance_value))
 
     def _clean_reply(self, response: str) -> str:
         """Clean reply by removing hidden tags."""
@@ -391,11 +465,17 @@ You can use the following tools to help your judgment:
 
     async def _ask_with_tools(self) -> Any:
         """Call LLM with tool support when available."""
-        if hasattr(self.llm, "ask_with_tools"):
-            return await self.llm.ask_with_tools(
+        if hasattr(self.llm, "ask_tool"):
+            tools_payload = None
+            if hasattr(self.available_tools, "to_params"):
+                tools_payload = self.available_tools.to_params()
+            else:
+                tools_payload = self.available_tools
+            return await self.llm.ask_tool(
                 messages=self.memory.messages,
                 system_msg=self.system_prompt,
-                tools=self.available_tools,
+                tools=tools_payload,
+                tool_choice=getattr(self, "tool_choices", None),
             )
         return await self.llm.ask(messages=self.memory.messages, system_msg=self.system_prompt)
 
@@ -416,15 +496,18 @@ You can use the following tools to help your judgment:
             return response, []
         return str(response), []
 
-    def _parse_tool_call(self, call: Any) -> tuple[str, dict, str]:
-        """Extract tool name, args, and narrative from a tool call."""
+    def _parse_tool_call(self, call: Any) -> tuple[str, dict, str, str | None]:
+        """Extract tool name, args, narrative, and tool_call_id from a tool call."""
+        tool_call_id = None
         if isinstance(call, dict):
             func = call.get("function") or {}
             tool_name = call.get("name") or func.get("name") or ""
             raw_args = call.get("arguments") or func.get("arguments") or call.get("input") or {}
+            tool_call_id = call.get("id")
         else:
             tool_name = getattr(call, "name", "") or getattr(getattr(call, "function", None), "name", "")
             raw_args = getattr(call, "arguments", None) or getattr(getattr(call, "function", None), "arguments", None) or {}
+            tool_call_id = getattr(call, "id", None)
 
         if isinstance(raw_args, str):
             try:
@@ -440,7 +523,26 @@ You can use the following tools to help your judgment:
         if isinstance(tool_args, dict) and "narrative" in tool_args:
             narrative = str(tool_args.get("narrative", ""))
 
-        return tool_name, tool_args, narrative
+        return tool_name, tool_args, narrative, tool_call_id
+
+    def _normalize_tool_calls(self, tool_calls: list[Any]) -> list[ToolCall]:
+        normalized: list[ToolCall] = []
+        for call in tool_calls or []:
+            if isinstance(call, ToolCall):
+                normalized.append(call)
+                continue
+            if isinstance(call, dict):
+                func = call.get("function") or {}
+                name = call.get("name") or func.get("name") or ""
+                arguments = func.get("arguments") or call.get("arguments") or call.get("input") or {}
+                call_id = call.get("id") or str(uuid4())
+                normalized.append(ToolCall(id=call_id, function=Function.create(name, arguments)))
+                continue
+            name = getattr(call, "name", "") or getattr(getattr(call, "function", None), "name", "")
+            arguments = getattr(call, "arguments", None) or getattr(getattr(call, "function", None), "arguments", None) or {}
+            call_id = getattr(call, "id", None) or str(uuid4())
+            normalized.append(ToolCall(id=call_id, function=Function.create(name, arguments)))
+        return normalized
 
     async def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         """Execute tool by name and return result text."""
@@ -474,20 +576,22 @@ You can use the following tools to help your judgment:
 
     def _get_stance_label(self) -> str:
         """Return a vague stance label (player-facing)."""
-        if self.stance_value < -30:
-            return "Seems to disagree with you"
-        elif self.stance_value < 0:
-            return "Seems to have some doubts"
-        elif self.stance_value < 30:
-            return "Neutral attitude"
-        elif self.stance_value < 60:
-            return "Seems to be considering your viewpoint"
+        if self.stance_value > 80:
+            return "Strongly favors guilty"
+        elif self.stance_value > 60:
+            return "Leans guilty"
+        elif self.stance_value > 40:
+            return "Undecided"
+        elif self.stance_value > 20:
+            return "Leans not guilty"
         else:
-            return "Seems to agree with you"
+            return "Strongly favors not guilty"
 
     def get_final_vote(self) -> bool:
-        """Final vote: True = not guilty, False = guilty."""
-        return self.stance_value > 0
+        """Final vote: True = guilty, False = not guilty."""
+        if self.last_vote is not None:
+            return bool(self.last_vote)
+        return self.stance_value > 50
 
     def get_first_message(self) -> str:
         """Return juror opening line."""
@@ -498,6 +602,8 @@ You can use the following tools to help your judgment:
         return {
             "id": self.juror_id,
             "name": self.juror_config.name if self.juror_config else "",
+            "codename": self.juror_config.codename if self.juror_config else "",
+            "stance_label": self._get_stance_label(),
             "occupation": self.juror_config.occupation if self.juror_config else "",
             "portrait": self.juror_config.portrait if self.juror_config else "",
         }
@@ -506,7 +612,8 @@ You can use the following tools to help your judgment:
         """Reset agent state for a new game."""
         self.conversation_history = []
         if self.juror_config:
-            self.stance_value = self.juror_config.initial_stance
+            self.stance_value = max(0, min(100, self.juror_config.initial_stance))
+        self.last_vote = None
         self.memory.clear()
         self.state = AgentState.IDLE
         self.current_step = 0
