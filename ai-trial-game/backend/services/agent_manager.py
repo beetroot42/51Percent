@@ -119,7 +119,6 @@ class AgentManager:
                 "id": juror_id,
                 "name": agent.config.name if agent.config else "",
                 "first_message": agent.get_first_message(),
-                "codename": agent.config.codename if agent.config else "",
                 "stance_label": agent._get_stance_label(),
             })
         return info_list

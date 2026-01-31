@@ -33,10 +33,11 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from services.agent_manager import AgentManager
+from services.deliberation_orchestrator import DeliberationOrchestrator
 from services.session_manager import Phase, SessionManager, require_phase
 from agents.daneel_agent import DaneelAgent
 from tools.voting_tool import VotingTool
@@ -177,6 +178,21 @@ class PresentJurorEvidenceResponse(BaseModel):
     weakness_triggered: bool = False
 
 
+class DeliberationNoteRequest(BaseModel):
+    """Deliberation note request."""
+    target_id: str
+    content: str
+    idempotency_key: str
+
+
+class DeliberationStateResponse(BaseModel):
+    """Deliberation state response."""
+    round: int
+    notes_remaining: int
+    transcript: list[dict]
+    stances: dict[str, int]
+
+
 # ============ Global State ============
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -185,6 +201,13 @@ JUROR_CONTENT = CONTENT_ROOT / "jurors"
 
 game_phase_var: ContextVar[str] = ContextVar("game_phase", default="prologue")
 session_manager = SessionManager()
+deliberation_queues: dict[str, list[asyncio.Queue]] = {}
+deliberation_tasks: dict[str, asyncio.Task] = {}
+deliberation_locks: dict[str, asyncio.Lock] = {}
+
+DELIBERATION_QUEUE_MAXSIZE = int(os.getenv("DELIBERATION_QUEUE_MAXSIZE", "200"))
+DELIBERATION_MAX_SUBSCRIBERS = int(os.getenv("DELIBERATION_MAX_SUBSCRIBERS", "5"))
+DELIBERATION_NOTE_WINDOW_SECONDS = int(os.getenv("DELIBERATION_NOTE_WINDOW_SECONDS", "3"))
 
 _contract_address = os.getenv(
     "JURY_VOTING_CONTRACT_ADDRESS",
@@ -301,6 +324,40 @@ def _build_juror_evidence_message(evidence_id: str, internal_id: str) -> str:
         f"玩家出示证物: {evidence_name} (ID: {evidence_id}, 编号: {internal_id}). "
         "如需查看内容，请使用 lookup_evidence 工具并传入该证物ID。"
     )
+
+
+def _collect_juror_stances() -> dict[str, int]:
+    stances: dict[str, int] = {}
+    for juror_id, agent in agent_manager.agents.items():
+        stances[juror_id] = int(getattr(agent, "stance_value", 0))
+    return stances
+
+
+async def _emit_deliberation_event(session_id: str, event: str, data: dict) -> None:
+    queues = deliberation_queues.get(session_id, [])
+    if not queues:
+        return
+    payload = {"event": event, "data": data}
+    for queue in list(queues):
+        try:
+            queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                continue
+
+
+def _get_deliberation_lock(session_id: str) -> asyncio.Lock:
+    lock = deliberation_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        deliberation_locks[session_id] = lock
+    return lock
 
 
 def _load_evidence_metadata() -> list[dict]:
@@ -552,7 +609,7 @@ async def set_phase(phase_name: str, session_id: str | None = None):
         phase_name: investigation / persuasion / verdict
 
     """
-    valid_phases = {"prologue", "investigation", "persuasion", "verdict"}
+    valid_phases = {"prologue", "investigation", "persuasion", "deliberation", "verdict"}
     if phase_name not in valid_phases:
         raise HTTPException(status_code=400, detail="Invalid phase")
 
@@ -692,6 +749,242 @@ async def present_evidence_to_juror(juror_id: str, evidence_id: str, session_id:
     )
 
 
+@app.get("/deliberation/stream")
+async def stream_deliberation(session_id: str):
+    """
+    Stream deliberation events via SSE.
+    """
+    try:
+        session_manager.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    queues = deliberation_queues.setdefault(session_id, [])
+    if len(queues) >= DELIBERATION_MAX_SUBSCRIBERS:
+        raise HTTPException(status_code=429, detail="Too many deliberation subscribers")
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=DELIBERATION_QUEUE_MAXSIZE)
+    queues.append(queue)
+
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    payload = json.dumps(item.get("data", {}), ensure_ascii=False)
+                    yield f"event: {item.get('event','message')}\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    heartbeat = json.dumps({"ts": time.time()}, ensure_ascii=False)
+                    yield f"event: heartbeat\ndata: {heartbeat}\n\n"
+        finally:
+            queues = deliberation_queues.get(session_id, [])
+            if queue in queues:
+                queues.remove(queue)
+            if not queues and session_id in deliberation_queues:
+                deliberation_queues.pop(session_id, None)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/deliberation/start")
+async def start_deliberation(session_id: str):
+    """
+    Start deliberation phase.
+    """
+    try:
+        state = session_manager.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if state.phase == Phase.persuasion:
+        state.phase = Phase.deliberation
+        set_game_phase(state.phase.value)
+
+    try:
+        require_phase(state, Phase.deliberation)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    existing = deliberation_tasks.get(session_id)
+    if existing and not existing.done():
+        return {"status": "running"}
+
+    orchestrator = DeliberationOrchestrator(agent_manager.agents)
+    lock = _get_deliberation_lock(session_id)
+
+    async def run_deliberation():
+        try:
+            jurors_payload = [
+                {"id": agent.juror_id, "name": agent.config.name if agent.config else agent.juror_id}
+                for agent in agent_manager.agents.values()
+            ]
+            await _emit_deliberation_event(session_id, "debate.start", {
+                "session_id": session_id,
+                "total_rounds": 4,
+                "jurors": jurors_payload,
+            })
+
+            for round_num in range(1, 5):
+                state.deliberation_round = round_num
+                leader_id = orchestrator.select_leader(state)
+                responder_ids = orchestrator.select_responders(leader_id, state)
+
+                await _emit_deliberation_event(session_id, "round.start", {
+                    "round": round_num,
+                    "leader_id": leader_id,
+                    "responder_ids": responder_ids,
+                })
+
+                await _emit_deliberation_event(session_id, "note.window", {
+                    "round": round_num,
+                    "notes_remaining": max(0, 3 - state.notes_used),
+                    "timeout_ms": DELIBERATION_NOTE_WINDOW_SECONDS * 1000,
+                })
+
+                if state.notes_used < 3:
+                    await asyncio.sleep(DELIBERATION_NOTE_WINDOW_SECONDS)
+
+                notes_for_round: dict[str, str] = {}
+                async with lock:
+                    for juror_id in [leader_id, *responder_ids]:
+                        if juror_id in state.deliberation_notes:
+                            notes_for_round[juror_id] = state.deliberation_notes.pop(juror_id)
+
+                speech_events = await orchestrator.run_round(
+                    round_num=round_num,
+                    session=state,
+                    notes_for_round=notes_for_round
+                )
+
+                for speech in speech_events:
+                    await _emit_deliberation_event(session_id, "speech.chunk", {
+                        "round": round_num,
+                        "speaker_id": speech["speaker_id"],
+                        "role": speech["role"],
+                        "text": speech["text"],
+                    })
+                    await _emit_deliberation_event(session_id, "speech.end", {
+                        "round": round_num,
+                        "speaker_id": speech["speaker_id"],
+                        "role": speech["role"],
+                        "full_text": speech["text"],
+                        "stance_deltas": speech["stance_deltas"],
+                    })
+
+                summary = orchestrator.build_debate_context(state, round_num)
+                await _emit_deliberation_event(session_id, "round.end", {
+                    "round": round_num,
+                    "stances": _collect_juror_stances(),
+                    "summary": summary,
+                })
+
+            state.phase = Phase.verdict
+            set_game_phase(state.phase.value)
+            transcript_summary = orchestrator.build_debate_context(state, state.deliberation_round)
+            await _emit_deliberation_event(session_id, "debate.end", {
+                "final_stances": _collect_juror_stances(),
+                "transcript_summary": transcript_summary,
+            })
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await _emit_deliberation_event(session_id, "error", {
+                "code": "deliberation_failed",
+                "message": str(exc),
+            })
+        finally:
+            deliberation_tasks.pop(session_id, None)
+            if not deliberation_queues.get(session_id):
+                deliberation_queues.pop(session_id, None)
+            deliberation_locks.pop(session_id, None)
+
+    deliberation_tasks[session_id] = asyncio.create_task(run_deliberation())
+    return {"status": "started"}
+
+
+@app.post("/deliberation/note")
+async def submit_deliberation_note(request: DeliberationNoteRequest, session_id: str):
+    """
+    Submit a private note to a juror during deliberation.
+    """
+    try:
+        state = session_manager.get(session_id)
+        require_phase(state, Phase.deliberation)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if request.target_id not in agent_manager.agents:
+        raise HTTPException(status_code=404, detail="Juror not found")
+    content = request.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Note content required")
+
+    orchestrator = DeliberationOrchestrator(agent_manager.agents)
+    lock = _get_deliberation_lock(session_id)
+    try:
+        async with lock:
+            result = orchestrator.submit_note(
+                session=state,
+                target_id=request.target_id,
+                content=content,
+                key=request.idempotency_key
+            )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if result.get("accepted"):
+        await _emit_deliberation_event(session_id, "note.received", {
+            "round": state.deliberation_round,
+            "target_id": request.target_id,
+            "notes_remaining": result.get("notes_remaining", 0),
+        })
+
+    return result
+
+
+@app.get("/deliberation/state", response_model=DeliberationStateResponse)
+async def get_deliberation_state(session_id: str):
+    """
+    Get deliberation state for recovery.
+    """
+    try:
+        state = session_manager.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return DeliberationStateResponse(
+        round=state.deliberation_round,
+        notes_remaining=max(0, 3 - state.notes_used),
+        transcript=state.deliberation_transcript,
+        stances=_collect_juror_stances(),
+    )
+
+
+@app.post("/deliberation/skip")
+async def skip_deliberation(session_id: str):
+    """
+    Skip deliberation and move to verdict.
+    """
+    try:
+        state = session_manager.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    state.phase = Phase.verdict
+    set_game_phase(state.phase.value)
+    task = deliberation_tasks.pop(session_id, None)
+    if task and not task.done():
+        task.cancel()
+    if not deliberation_queues.get(session_id):
+        deliberation_queues.pop(session_id, None)
+    deliberation_locks.pop(session_id, None)
+    return {"status": "skipped", "phase": state.phase.value}
+
+
 @app.post("/vote", response_model=VoteResponse)
 async def trigger_vote():
     """
@@ -711,29 +1004,44 @@ async def trigger_vote():
     votes: list[dict] = []
     tx_hashes: list[str] = []
 
-    for juror_id, agent in agent_manager.agents.items():
-        try:
-            response = await agent.chat(
-                "审判阶段已开始，请根据当前立场作出最终投票，并调用 cast_vote 工具提交结果。"
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Juror vote failed: {exc}") from exc
+    async def _cast_vote_async(juror_index: int, guilty: bool) -> str:
+        return await asyncio.to_thread(voting_tool.cast_vote, juror_index, guilty)
 
-        guilty: bool | None = None
-        tx_hash: str | None = None
-        for action in response.get("tool_actions", []):
-            if action.get("tool") == "cast_vote":
-                guilty = bool(action.get("input", {}).get("guilty"))
-                tx_hash = _extract_tx_hash(action.get("result_summary", ""))
-                if tx_hash:
-                    tx_hashes.append(tx_hash)
-        if guilty is None:
-            raise HTTPException(status_code=500, detail=f"Juror did not cast vote: {juror_id}")
-
-        votes.append({
+    vote_jobs: list[dict] = []
+    for index, (juror_id, agent) in enumerate(agent_manager.agents.items()):
+        guilty = bool(agent.get_final_vote())
+        juror_index = getattr(agent, "_juror_index", None)
+        if juror_index is None:
+            juror_index = index
+        vote_jobs.append({
             "juror_id": juror_id,
             "name": agent.config.name if agent.config else juror_id,
-            "vote": guilty
+            "vote": guilty,
+            "juror_index": juror_index,
+        })
+
+    async def _run_vote(job: dict) -> str | Exception:
+        try:
+            return await asyncio.wait_for(
+                _cast_vote_async(job["juror_index"], job["vote"]),
+                timeout=_tx_timeout,
+            )
+        except Exception as exc:
+            return exc
+
+    results = await asyncio.gather(*[_run_vote(job) for job in vote_jobs])
+    for job, result in zip(vote_jobs, results):
+        if isinstance(result, Exception):
+            raise HTTPException(
+                status_code=502,
+                detail=f"Juror vote failed: {job['juror_id']}: {result}",
+            ) from result
+        if result:
+            tx_hashes.append(str(result))
+        votes.append({
+            "juror_id": job["juror_id"],
+            "name": job["name"],
+            "vote": job["vote"],
         })
 
     guilty_count = sum(1 for vote in votes if vote.get("vote"))

@@ -138,6 +138,47 @@ async function presentEvidence(witnessId, evidenceId, sessionId) {
     });
 }
 
+// ============ 陪审团辩论 (Deliberation) ============
+
+async function startDeliberation(sessionId) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/deliberation/start?session_id=${sessionId}`, {
+        method: 'POST'
+    });
+}
+
+async function submitNote(sessionId, targetId, content, key) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/deliberation/note?session_id=${sessionId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+            target_id: targetId,
+            content: content,
+            idempotency_key: key
+        })
+    });
+}
+
+async function skipDeliberation(sessionId) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/deliberation/skip?session_id=${sessionId}`, {
+        method: 'POST'
+    });
+}
+
+async function getDeliberationState(sessionId) {
+    if (!sessionId) {
+        throw new Error('Session ID is required');
+    }
+    return request(`/deliberation/state?session_id=${sessionId}`);
+}
+
 // ============ 序章 (Prologue) ============
 
 async function getOpening() {

@@ -23,6 +23,7 @@ from spoon_ai.schema import AgentState, ToolChoice, ToolCall, Function
 
 from tools.evidence_tool import EvidenceLookupTool
 from tools.spoon_voting_tool import CastVoteTool
+from spoon_ai.tools import ToolManager
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEAKNESS_IMPACT = 10
@@ -44,7 +45,6 @@ class JurorConfig:
     """Juror configuration loaded from JSON."""
     id: str
     name: str
-    codename: str
     role_prompt: str
     weakness: dict
     background: str
@@ -56,6 +56,7 @@ class JurorConfig:
     age: int = 0
     occupation: str = ""
     portrait: str = ""
+    speaker_power: float = 0.5
 
 
 @dataclass
@@ -212,7 +213,6 @@ class SpoonJurorAgent(ToolCallAgent):
         return JurorConfig(
             id=data["id"],
             name=data["name"],
-            codename=data.get("codename", ""),
             role_prompt=data.get("role_prompt", ""),
             weakness=data.get("weakness", {}),
             background=data.get("background", ""),
@@ -224,6 +224,7 @@ class SpoonJurorAgent(ToolCallAgent):
             age=data.get("age", 0),
             occupation=data.get("occupation", ""),
             portrait=data.get("portrait", ""),
+            speaker_power=float(data.get("speaker_power", 0.5)),
         )
 
     def _build_roleplay_prompt(
@@ -423,6 +424,111 @@ class SpoonJurorAgent(ToolCallAgent):
             "weakness_triggered": weakness_triggered
         }
 
+    async def debate(self, context: str, role: str, note: str | None = None) -> dict:
+        """
+        Juror debate turn (leader/responder).
+        """
+        if role not in ("leader", "responder"):
+            raise ValueError("role must be leader or responder")
+
+        original_prompt = self.system_prompt
+        original_tools = self.available_tools
+
+        # Disable voting tool during deliberation
+        tools = [tool for tool in original_tools.tools if tool.name != "cast_vote"]
+        self.available_tools = ToolManager(tools)
+
+        deliberation_prefix = load_file("content/prompts/deliberation_prefix.md") or "你正在与其他陪审员讨论此案。"
+        role_prompt = load_file(
+            "content/prompts/deliberation_leader.md" if role == "leader" else "content/prompts/deliberation_responder.md"
+        ) or ""
+
+        self.system_prompt = f"""{deliberation_prefix}
+
+## 你的角色
+{self.juror_config.role_prompt if self.juror_config else ""}
+
+{role_prompt}
+
+## 辩论记录
+{context}
+"""
+
+        await self.add_message("user", f"[辩论记录]\n{context}")
+        if note:
+            await self.add_message("user", f"[私密纸条]\n{note}")
+
+        tool_actions: list[dict] = []
+        final_reply: str | None = None
+        accumulated_text_parts: list[str] = []
+
+        try:
+            for _ in range(self.max_steps):
+                response = await self._ask_with_tools()
+                reply_text, tool_calls = self._extract_tool_calls(response)
+
+                if reply_text:
+                    accumulated_text_parts.append(reply_text)
+
+                if tool_calls:
+                    normalized_tool_calls = self._normalize_tool_calls(tool_calls)
+                    await self.add_message(
+                        "assistant",
+                        reply_text or "",
+                        tool_calls=normalized_tool_calls
+                    )
+
+                    for call, norm_call in zip(tool_calls, normalized_tool_calls):
+                        tool_name, tool_args, narrative, tool_call_id = self._parse_tool_call(call)
+                        if not tool_call_id:
+                            tool_call_id = norm_call.id
+                        if not tool_name:
+                            tool_name = norm_call.function.name
+                        exec_args = dict(tool_args)
+                        exec_args.pop("narrative", None)
+                        tool_result = await self._execute_tool(tool_name, exec_args)
+                        result_summary = self._summarize_tool_result(tool_result)
+                        tool_actions.append({
+                            "tool": tool_name,
+                            "input": exec_args,
+                            "result_summary": result_summary,
+                            "narrative": narrative,
+                        })
+                        await self.add_message(
+                            "tool",
+                            tool_result,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name
+                        )
+                    continue
+
+                final_reply = reply_text or str(response)
+                await self.add_message("assistant", final_reply)
+                break
+
+        finally:
+            self.system_prompt = original_prompt
+            self.available_tools = original_tools
+
+        if final_reply is None:
+            if accumulated_text_parts:
+                final_reply = "\n".join(accumulated_text_parts)
+            else:
+                final_reply = "让我再仔细想想这个案件。"
+
+        topics, impact = self._parse_topics(final_reply)
+        clean_reply = self._clean_reply(final_reply)
+        if not clean_reply:
+            clean_reply = "（陪审员正在思考...）"
+
+        return {
+            "reply": clean_reply,
+            "juror_id": self.juror_id,
+            "tool_actions": tool_actions,
+            "topics": topics,
+            "impact": impact,
+        }
+
     def _parse_topics(self, response: str) -> tuple[list[str], str]:
         """Parse topic tags from agent reply."""
         match = re.search(r'<!-- ANALYSIS: ({.*?}) -->', response, re.DOTALL)
@@ -493,8 +599,17 @@ class SpoonJurorAgent(ToolCallAgent):
         if content is not None or tool_calls is not None:
             return str(content) if content is not None else "", list(tool_calls or [])
         if isinstance(response, str):
+            # Hack: Filter out usage metadata if returned as string
+            if response.strip().startswith("{'prompt_tokens':"):
+                return "", []
             return response, []
-        return str(response), []
+        
+        # Check if str(response) is usage metadata
+        str_resp = str(response)
+        if str_resp.strip().startswith("{'prompt_tokens':"):
+            return "", []
+
+        return str_resp, []
 
     def _parse_tool_call(self, call: Any) -> tuple[str, dict, str, str | None]:
         """Extract tool name, args, narrative, and tool_call_id from a tool call."""
@@ -602,7 +717,6 @@ class SpoonJurorAgent(ToolCallAgent):
         return {
             "id": self.juror_id,
             "name": self.juror_config.name if self.juror_config else "",
-            "codename": self.juror_config.codename if self.juror_config else "",
             "stance_label": self._get_stance_label(),
             "occupation": self.juror_config.occupation if self.juror_config else "",
             "portrait": self.juror_config.portrait if self.juror_config else "",

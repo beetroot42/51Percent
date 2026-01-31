@@ -24,10 +24,6 @@
       "text": "选择选项1后当事人的回应",
       "options": [
         {
-          "text": "继续追问",
-          "next": "node_a1"
-        },
-        {
           "text": "换个话题",
           "next": "start"
         }

@@ -10,6 +10,11 @@
     --dim-border: #444444;
     --warning-color: #f4c542;
     --font-main: 'Noto Serif SC', serif;
+
+    --guilty-color: #d94b4b;
+    --guilty-color-rgb: 217, 75, 75;
+    --not-guilty-color: #3b82f6;
+    --not-guilty-color-rgb: 59, 130, 246;
     
     --container-width: 800px;
     --border-width: 2px;

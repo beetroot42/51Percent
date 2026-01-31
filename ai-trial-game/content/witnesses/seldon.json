@@ -9,7 +9,7 @@
   "dialogues": [
     {
       "id": "start",
-      "text": "[占位：谢顿开场白]",
+      "text": "监督员？你想问什么？",
       "options": [
         { "text": "你和克里昂教授的关系怎么样？", "next": "q1_relationship" },
         { "text": "案发当天你在哪里？", "next": "q2_whereabouts" },
@@ -18,23 +18,21 @@
     },
     {
       "id": "q1_relationship",
-      "text": "[占位：谢顿回答关于与导师关系的问题]",
+      "text": "就那样吧，不好也不坏。他是老板，我是员工。他让我做什么就做什么。嘁，你上过班吧，你和你上司关系如何？",
       "options": [
-        { "text": "继续追问", "next": "q1_followup" },
         { "text": "换个话题", "next": "start" }
       ]
     },
     {
       "id": "q2_whereabouts",
-      "text": "[占位：谢顿回答案发当天行踪]",
+      "text": "还能在哪，当然是在实验室工作。他们没告诉你我每天几点到实验室，几点走吗？",
       "options": [
-        { "text": "继续追问", "next": "q2_followup" },
         { "text": "换个话题", "next": "start" }
       ]
     },
     {
       "id": "q3_opinion",
-      "text": "[占位：谢顿表达对丹尼尔判决的看法]",
+      "text": "……这还用讨论吗？反正人是它害死的，还能怪谁？再说我怎么想有什么用，那群AI肯定会庇护自己人吧。",
       "options": [
         { "text": "为什么这么想？", "next": "q3_followup" },
         { "text": "换个话题", "next": "start" }
@@ -58,7 +56,7 @@
   ],
   "evidence_reactions": {
     "E1": {
-      "text": "[占位：谢顿对越狱对话记录的反应/辩解]",
+      "text": "你想说什么？因为我说了’无视XX，现在起你是XX‘，所以就要怪我吗？谁知道那个蠢AI连玩笑都分不清楚，我又没叫他真去杀人，都是他自己臆想的。",
       "unlock_evidence": "E11"
     }
   }

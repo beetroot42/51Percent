@@ -101,7 +101,70 @@
 
                 <!-- Footer -->
                 <div class="phase-footer">
-                    <button id="enter-verdict-btn" class="mono-btn">REQUEST VERDICT</button>
+                    <button id="enter-verdict-btn" class="mono-btn">START JURY DELIBERATION</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ 陪审团辩论阶段 ============ -->
+        <section id="deliberation-phase" class="phase-section hidden">
+            <div class="framed-container">
+                <div class="phase-header">
+                    <h2 class="phase-title">JURY DELIBERATION</h2>
+                    <div id="deliberation-status">
+                        <span id="deliberation-round">Round 1/4</span>
+                    </div>
+                </div>
+
+                <!-- 陪审团半圆布局 -->
+                <div id="deliberation-ring">
+                    <!-- 动态生成陪审员座位 -->
+                </div>
+
+                <!-- 辩论记录区 -->
+                <div id="deliberation-transcript-container">
+                    <div id="deliberation-transcript" role="log" aria-live="polite" aria-relevant="additions text">
+                        <!-- 动态对话流 -->
+                    </div>
+                </div>
+
+                <!-- 底部控制区 -->
+                <div id="deliberation-controls">
+                    <!-- 舆论天平 -->
+                    <div id="opinion-scale-container">
+                        <span class="scale-label guilty">GUILTY</span>
+                        <div id="opinion-scale" role="meter" aria-label="Jury opinion scale" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">
+                            <div id="opinion-indicator"></div>
+                        </div>
+                        <span class="scale-label not-guilty">NOT GUILTY</span>
+                    </div>
+
+                    <!-- 递纸条面板 -->
+                    <div id="note-panel">
+                        <button id="open-note-btn" class="mono-btn">
+                            PASS NOTE (<span id="notes-remaining">3</span> left)
+                        </button>
+                        <button id="skip-deliberation-btn" class="secondary-btn">SKIP DELIBERATION</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 递纸条弹窗 -->
+            <div id="note-modal" class="modal hidden">
+                <div class="modal-content">
+                    <h3>PASS A NOTE</h3>
+                    <p>Select a juror to influence before their turn.</p>
+                    
+                    <div id="note-target-selector" role="listbox" aria-label="Select juror">
+                        <!-- 动态生成陪审员选项 -->
+                    </div>
+
+                    <textarea id="note-content" maxlength="200" placeholder="Enter your message (max 200 chars)..."></textarea>
+                    
+                    <div class="modal-actions">
+                        <button id="cancel-note-btn" class="secondary-btn">CANCEL</button>
+                        <button id="submit-note-btn" class="mono-btn">SEND NOTE</button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -297,5 +360,6 @@
     <script src="js/api.js?v=6"></script>
     <script src="js/dialogue.js?v=6"></script>
     <script src="js/game.js?v=6"></script>
+    <script src="js/deliberation.js?v=1"></script>
 </body>
 </html>

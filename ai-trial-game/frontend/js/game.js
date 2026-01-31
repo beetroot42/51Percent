@@ -6,6 +6,7 @@ const PHASES = {
     PROLOGUE: 'prologue',
     INVESTIGATION: 'investigation',
     PERSUASION: 'persuasion',
+    DELIBERATION: 'deliberation',
     VERDICT: 'verdict'
 };
 
@@ -46,6 +47,12 @@ async function initGame() {
             updatePhaseIndicator('说服阶段');
             showSection('persuasion-phase');
             await showJurorList();
+        } else if (gameState.phase === PHASES.DELIBERATION) {
+            updatePhaseIndicator('陪审团辩论');
+            showSection('deliberation-phase');
+            if (typeof Deliberation !== 'undefined') {
+                Deliberation.init(gameState.sessionId);
+            }
         } else if (gameState.phase === PHASES.VERDICT) {
             // 审判阶段通常需要完整流程，初始化时默认回退到调查或保持
             await enterInvestigation();
@@ -71,8 +78,8 @@ function bindEvents() {
     // 进入说服阶段
     document.getElementById('enter-persuasion-btn')?.addEventListener('click', enterPersuasion);
 
-    // 进入审判阶段
-    document.getElementById('enter-verdict-btn')?.addEventListener('click', enterVerdict);
+    // 进入辩论阶段（从说服阶段）
+    document.getElementById('enter-verdict-btn')?.addEventListener('click', enterDeliberation);
 
     // 重新开始
     document.getElementById('restart-btn')?.addEventListener('click', handleRestart);
@@ -542,6 +549,28 @@ async function enterPersuasion() {
     }
 }
 
+async function enterDeliberation() {
+    try {
+        setLoading(true);
+        gameState.phase = PHASES.DELIBERATION;
+        await setPhase(PHASES.DELIBERATION, gameState.sessionId);
+        updatePhaseIndicator('陪审团辩论');
+        showSection('deliberation-phase');
+
+        // 初始化辩论模块
+        if (typeof Deliberation !== 'undefined') {
+            Deliberation.init(gameState.sessionId);
+        } else {
+            showError('辩论模块未加载');
+        }
+    } catch (e) {
+        showError('进入辩论阶段失败');
+        console.error(e);
+    } finally {
+        setLoading(false);
+    }
+}
+
 async function enterVerdict() {
     try {
         gameState.phase = PHASES.VERDICT;
@@ -602,6 +631,8 @@ async function enterVerdict() {
         }
     }
 }
+
+window.enterVerdict = enterVerdict;
 
 /**
  * 处理 Sepolia 链上投票流程（带进度条）
@@ -1333,7 +1364,22 @@ function handleShowEvidence(evidenceId) {
                  bMsg.innerHTML = `<div class="witness-speaker">DANEEL</div><div class="witness-line-text">${reactionText}</div>`;
                  history.appendChild(bMsg);
             } else {
-                 alert(`[REACTION RECORDED]\n\n${reactionText}`);
+                 const textEl = document.getElementById('witness-text');
+                 if (textEl) {
+                     const wrapper = document.createElement('div');
+                     wrapper.className = 'witness-block witness-dialogue';
+                     const speakerEl = document.createElement('div');
+                     speakerEl.className = 'witness-speaker';
+                     speakerEl.textContent = dialogueState.dialogueTree?.name || gameState.currentWitness || 'WITNESS';
+                     const lineEl = document.createElement('div');
+                     lineEl.className = 'witness-line-text';
+                     lineEl.textContent = reactionText;
+                     wrapper.appendChild(speakerEl);
+                     wrapper.appendChild(lineEl);
+                     textEl.appendChild(wrapper);
+                 } else {
+                     showError('证词显示失败');
+                 }
             }
 
             // Handle Unlocks
@@ -1344,7 +1390,7 @@ function handleShowEvidence(evidenceId) {
 
         } catch (e) {
             console.error(e);
-            alert('NO REACTION / ERROR');
+            showError('出示证物失败');
         }
     })();
 }
@@ -1352,7 +1398,9 @@ function handleShowEvidence(evidenceId) {
 function showUnlockNotification(evidenceIds) {
     const toast = document.createElement('div');
     toast.className = 'unlock-toast';
-    toast.innerHTML = `<span>EVIDENCE UNLOCKED: ${evidenceIds.join(', ')}</span>`;
+    const text = document.createElement('span');
+    text.textContent = `EVIDENCE UNLOCKED: ${evidenceIds.join(', ')}`;
+    toast.appendChild(text);
     document.body.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('fade-out');
@@ -1382,7 +1430,6 @@ async function showJurorList() {
                  onkeydown="if(event.key==='Enter'||event.key===' ')selectJuror('${j.id}')"
                  role="button"
                  tabindex="0">
-                <span class="juror-codename">${j.codename || ''}</span>
                 <span class="juror-name">${j.name || j.id}</span>
                 <span class="juror-stance-hint">${j.stance_label || ''}</span>
             </div>
@@ -1964,7 +2011,10 @@ async function reVerify() {
  */
 function openBlockExplorer() {
     const verification = window.currentVerification;
-    if (!verification) return;
+    if (!verification) {
+        showError('暂无可验证的交易记录，请先完成投票或重试验证。');
+        return;
+    }
 
     const { chainData } = verification;
 

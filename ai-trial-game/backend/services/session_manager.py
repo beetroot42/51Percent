@@ -21,6 +21,7 @@ class Phase(str, Enum):
     prologue = "prologue"
     investigation = "investigation"
     persuasion = "persuasion"
+    deliberation = "deliberation"
     verdict = "verdict"
 
 
@@ -33,6 +34,13 @@ class SessionState(BaseModel):
     blake_round: int = 0
     juror_rounds_used: dict[str, int] = Field(default_factory=dict)
     juror_stance: dict[str, int] = Field(default_factory=dict)
+    deliberation_round: int = 0
+    deliberation_transcript: list[dict] = Field(default_factory=list)
+    notes_used: int = 0
+    note_keys: set[str] = Field(default_factory=set)
+    leader_history: list[str] = Field(default_factory=list)
+    responder_history: list[list[str]] = Field(default_factory=list)
+    deliberation_notes: dict[str, str] = Field(default_factory=dict)
 
 
 class SessionManager:
